@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidExplanation(data) {
+      return data.keys().hasAll(['id', 'userId', 'paper', 'topic', 'subTopic', 'content', 'updatedAt']) 
+        && data.keys().size() == 7
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.paper is string && data.paper.size() <= 50
+        && data.topic is string && data.topic.size() <= 100
+        && data.subTopic is string && data.subTopic.size() <= 100
+        && data.content is string && data.content.size() <= 100000;
+    }
+
+    function isValidNote(data) {
+      return data.keys().hasAll(['id', 'userId', 'paper', 'topic', 'subTopic', 'notes', 'customTheorists', 'customStudies', 'customExamples', 'updatedAt'])
+        && data.keys().size() == 10
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.paper is string && data.paper.size() <= 50
+        && data.topic is string && data.topic.size() <= 100
+        && data.subTopic is string && data.subTopic.size() <= 100
+        && data.notes is string && data.notes.size() <= 100000
+        && data.customTheorists is list && data.customTheorists.size() <= 50
+        && data.customStudies is list && data.customStudies.size() <= 50
+        && data.customExamples is list && data.customExamples.size() <= 50;
+    }
+
+    function isValidSavedQuestion(data) {
+      return data.keys().hasAll(['id', 'userId', 'paper', 'topic', 'questionType', 'question', 'markScheme', 'modelAnswer', 'createdAt'])
+        && data.keys().size() == 9
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.paper is string && data.paper.size() <= 50
+        && data.topic is string && data.topic.size() <= 100
+        && data.questionType is string && data.questionType.size() <= 50
+        && data.question is string && data.question.size() <= 1000
+        && data.markScheme is list && data.markScheme.size() <= 50
+        && data.modelAnswer is string && data.modelAnswer.size() <= 50000;
+    }
+
+    function isValidQuizScore(data) {
+      return data.keys().hasAll(['id', 'userId', 'paper', 'score', 'totalQuestions', 'answers', 'createdAt'])
+        && data.keys().size() == 7
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.paper is string && data.paper.size() <= 50
+        && data.score is number && data.score >= 0 && data.score <= 100
+        && data.totalQuestions is number && data.totalQuestions >= 1
+        && data.answers is list && data.answers.size() <= 100;
+    }
+
+    match /custom_explanations/{explanationId} {
+      allow read, delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidId(explanationId) && isValidExplanation(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && incoming().id == existing().id && isValidExplanation(incoming());
+    }
+
+    match /custom_notes/{noteId} {
+      allow read, delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidId(noteId) && isValidNote(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && incoming().id == existing().id && isValidNote(incoming());
+    }
+
+    match /saved_questions/{questionId} {
+      allow read, delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidId(questionId) && isValidSavedQuestion(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && incoming().id == existing().id && isValidSavedQuestion(incoming());
+    }
+
+    match /quiz_scores/{scoreId} {
+      allow read, delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidId(scoreId) && isValidQuizScore(incoming());
+      allow update: if false; // Quiz scores are immutable
+    }
+  }
+}

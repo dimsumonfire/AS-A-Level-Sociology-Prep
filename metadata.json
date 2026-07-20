@@ -1,0 +1,8 @@
+{
+  "name": "Remix: SocioPrep",
+  "description": "A comprehensive study companion for Cambridge 9699 AS \u0026 A Level Sociology, featuring syllabus guides, practice papers, and AI-powered question generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
