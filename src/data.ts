@@ -86,6 +86,258 @@ export interface PastPaper {
 
 export const pastPapers: PastPaper[] = [
   {
+    id: "2021_P1_11",
+    title: "Paper 1: Socialisation, Identity and Methods of Research",
+    series: "May/June 2021",
+    paperNumber: "9699/11",
+    duration: "1h 30m",
+    totalMarks: 60,
+    sections: [
+      {
+        name: "Section A",
+        questions: [
+          { id: "1", text: "Describe two informal social sanctions.", marks: 4 },
+          {
+            id: "2",
+            text: "",
+            marks: 14,
+            subQuestions: [
+              { text: "Explain two practical factors that can influence choice of research method.", marks: 8 },
+              { text: "Explain two limitations of using an overt approach to participant observation.", marks: 6 }
+            ]
+          },
+          {
+            id: "3",
+            text: "‘Male identity is changing.’",
+            marks: 16,
+            subQuestions: [
+              { text: "Explain this view.", marks: 10 },
+              { text: "Using sociological material, give one argument against this view.", marks: 6 }
+            ]
+          }
+        ]
+      },
+      {
+        name: "Section B",
+        instruction: "Answer one question in this section.",
+        questions: [
+          { id: "4", text: "Evaluate cultural explanations of deviance.", marks: 26 },
+          { id: "5", text: "Evaluate the view that quantitative research methods have more strengths than limitations.", marks: 26 }
+        ]
+      }
+    ]
+  },
+  {
+    id: "2021_P1_12",
+    title: "Paper 1: Socialisation, Identity and Methods of Research",
+    series: "May/June 2021",
+    paperNumber: "9699/12",
+    duration: "1h 30m",
+    totalMarks: 60,
+    sections: [
+      {
+        name: "Section A",
+        questions: [
+          { id: "1", text: "Describe two sampling techniques.", marks: 4 },
+          {
+            id: "2",
+            text: "",
+            marks: 14,
+            subQuestions: [
+              { text: "Explain two ethical issues associated with sociological research.", marks: 8 },
+              { text: "Explain one strength and one limitation of official statistics.", marks: 6 }
+            ]
+          },
+          {
+            id: "3",
+            text: "‘Ethnic identity is changing, with new hybrid identities emerging.’",
+            marks: 16,
+            subQuestions: [
+              { text: "Explain this view.", marks: 10 },
+              { text: "Using sociological material, give one argument against this view.", marks: 6 }
+            ]
+          }
+        ]
+      },
+      {
+        name: "Section B",
+        instruction: "Answer one question in this section.",
+        questions: [
+          { id: "4", text: "Evaluate the view that human behaviour is shaped entirely by the process of socialisation.", marks: 26 },
+          { id: "5", text: "Evaluate the use of qualitative interview methods in sociological research.", marks: 26 }
+        ]
+      }
+    ]
+  },
+  {
+    id: "2021_P1_13",
+    title: "Paper 1: Socialisation, Identity and Methods of Research",
+    series: "May/June 2021",
+    paperNumber: "9699/13",
+    duration: "1h 30m",
+    totalMarks: 60,
+    sections: [
+      {
+        name: "Section A",
+        questions: [
+          { id: "1", text: "Describe two social roles associated with young people.", marks: 4 },
+          {
+            id: "2",
+            text: "",
+            marks: 14,
+            subQuestions: [
+              { text: "Explain two characteristics of the positivist approach to sociological research.", marks: 8 },
+              { text: "Explain two strengths of structured interviews as a research method.", marks: 6 }
+            ]
+          },
+          {
+            id: "3",
+            text: "‘The family is the most important influence on social class identity.’",
+            marks: 16,
+            subQuestions: [
+              { text: "Explain this view.", marks: 10 },
+              { text: "Using sociological material, give one argument against this view.", marks: 6 }
+            ]
+          }
+        ]
+      },
+      {
+        name: "Section B",
+        instruction: "Answer one question in this section.",
+        questions: [
+          { id: "4", text: "Evaluate the view that social identities are changing due to increased choice.", marks: 26 },
+          { id: "5", text: "Evaluate the view that the strengths of overt participant observation outweigh the limitations.", marks: 26 }
+        ]
+      }
+    ]
+  },
+  {
+    id: "2021_P2_21",
+    title: "Paper 2: The Family",
+    series: "May/June 2021",
+    paperNumber: "9699/21",
+    duration: "1h 30m",
+    totalMarks: 60,
+    sections: [
+      {
+        name: "Section A",
+        questions: [
+          { id: "1", text: "Describe two reasons for the decline in the number of marriages in some societies.", marks: 4 },
+          {
+            id: "2",
+            text: "",
+            marks: 14,
+            subQuestions: [
+              { text: "Explain two ways the family supports ruling class interests, according to Marxist theory.", marks: 8 },
+              { text: "Explain one strength and one limitation of the Marxist view of the family.", marks: 6 }
+            ]
+          },
+          {
+            id: "3",
+            text: "‘Conjugal roles have become equal.’",
+            marks: 16,
+            subQuestions: [
+              { text: "Explain this view.", marks: 10 },
+              { text: "Using sociological material, give one argument against this view.", marks: 6 }
+            ]
+          }
+        ]
+      },
+      {
+        name: "Section B",
+        instruction: "Answer one question in this section.",
+        questions: [
+          { id: "4", text: "Evaluate the view that the family has lost many of its functions.", marks: 26 },
+          { id: "5", text: "Evaluate the view that in contemporary society the family has become child-centred.", marks: 26 }
+        ]
+      }
+    ]
+  },
+  {
+    id: "2021_P2_22",
+    title: "Paper 2: The Family",
+    series: "May/June 2021",
+    paperNumber: "9699/22",
+    duration: "1h 30m",
+    totalMarks: 60,
+    sections: [
+      {
+        name: "Section A",
+        questions: [
+          { id: "1", text: "Describe two ways increased life expectancy has impacted on the family.", marks: 4 },
+          {
+            id: "2",
+            text: "",
+            marks: 14,
+            subQuestions: [
+              { text: "Explain two reasons why there may be greater gender equality within the family today than in the past.", marks: 8 },
+              { text: "Explain one strength and one limitation of the liberal feminist view of the family.", marks: 6 }
+            ]
+          },
+          {
+            id: "3",
+            text: "‘Cohabitation is replacing marriage.’",
+            marks: 16,
+            subQuestions: [
+              { text: "Explain this view.", marks: 10 },
+              { text: "Using sociological material, give one argument against this view.", marks: 6 }
+            ]
+          }
+        ]
+      },
+      {
+        name: "Section B",
+        instruction: "Answer one question in this section.",
+        questions: [
+          { id: "4", text: "Evaluate the functionalist perspective on the role of the family.", marks: 26 },
+          { id: "5", text: "Evaluate the view that social policies have had a positive impact upon the family.", marks: 26 }
+        ]
+      }
+    ]
+  },
+  {
+    id: "2021_P2_23",
+    title: "Paper 2: The Family",
+    series: "May/June 2021",
+    paperNumber: "9699/23",
+    duration: "1h 30m",
+    totalMarks: 60,
+    sections: [
+      {
+        name: "Section A",
+        questions: [
+          { id: "1", text: "Describe two ways the state may influence the family.", marks: 4 },
+          {
+            id: "2",
+            text: "",
+            marks: 14,
+            subQuestions: [
+              { text: "Explain two ways the family supports the interests of men, according to feminists.", marks: 8 },
+              { text: "Explain two limitations of radical feminist views of the family.", marks: 6 }
+            ]
+          },
+          {
+            id: "3",
+            text: "‘Social class is the main influence on family structure.’",
+            marks: 16,
+            subQuestions: [
+              { text: "Explain this view.", marks: 10 },
+              { text: "Using sociological material, give one argument against this view.", marks: 6 }
+            ]
+          }
+        ]
+      },
+      {
+        name: "Section B",
+        instruction: "Answer one question in this section.",
+        questions: [
+          { id: "4", text: "Evaluate the view that increased social opportunities for women are the main reason for the rise in divorce rates.", marks: 26 },
+          { id: "5", text: "Evaluate Marxist explanations of the role of the family.", marks: 26 }
+        ]
+      }
+    ]
+  },
+  {
     id: "2023_M_P1_12",
     title: "Paper 1: Socialisation, Identity and Methods of Research",
     series: "March 2023",

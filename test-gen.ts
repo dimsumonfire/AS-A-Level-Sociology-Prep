@@ -7,7 +7,14 @@ async function test() {
     return;
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ 
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
   const randomSeed = Math.floor(Math.random() * 1000000);
   const selectedPaper = "Paper 1";
   
@@ -32,7 +39,7 @@ async function test() {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.7-flash",
       contents: prompt,
       config: {
         maxOutputTokens: 8192,

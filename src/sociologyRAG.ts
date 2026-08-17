@@ -1,4 +1,4 @@
-import { deepenedPaper1Entries } from './sociologyDatabase';
+import { allDeepenedEntries, deepenedPaper1Entries } from './sociologyDatabase';
 
 export interface TextbookRAGEntry {
   theorists: string[];
@@ -1690,80 +1690,148 @@ export const sociologyRAG: Record<string, Record<string, Record<string, Textbook
 
 /**
  * Helper function to retrieve RAG content for a given paper, topic, and subtopic.
- * Falls back gracefully to broader topic if subtopic is not found.
+ * Supports comprehensive topic overview synthesis for 'Introduction' and deep subtopic retrieval.
  */
 export function getSociologyRAGContent(paper: string, topic: string, subTopic?: string): string {
   const paperClean = paper.trim();
   const topicClean = topic.trim();
   const subTopicClean = subTopic ? subTopic.trim() : "Introduction";
 
-  const paperData = sociologyRAG[paperClean];
-  if (!paperData) return "";
+  const dbPaper = allDeepenedEntries[paperClean] || deepenedPaper1Entries;
+  const dbTopic = dbPaper ? dbPaper[topicClean] : undefined;
 
-  const topicData = paperData[topicClean];
-  if (!topicData) return "";
+  // Handle Introduction: Aggregate topic-wide textbook coverage
+  if (subTopicClean === "Introduction" && dbTopic) {
+    const subtopicEntries = Object.entries(dbTopic);
+    if (subtopicEntries.length > 0) {
+      const allTheorists = Array.from(new Set(subtopicEntries.flatMap(([_, entry]) => entry.theorists || [])));
+      const combinedKeyTerms: Record<string, string> = {};
+      const combinedCollinsFocus: string[] = [];
+      const combinedCupFocus: string[] = [];
+      const combinedEvals: string[] = [];
+      const combinedStudies: Array<{ researcher: string; study: string; method: string; findings: string }> = [];
+      const combinedExamples: string[] = [];
+      const combinedMisconceptions: string[] = [];
+      const combinedSynoptics: string[] = [];
+      const combinedStats: string[] = [];
+      const combinedQuotes: Array<{ theorist: string; quote: string }> = [];
 
-  // Exact Match for Sub-topic
-  let entry = topicData[subTopicClean];
-  
-  // Graceful fallback to search subtopics for keyword matching
-  if (!entry && subTopicClean !== "Introduction") {
-    const matchedKey = Object.keys(topicData).find(key => 
-      key.toLowerCase().includes(subTopicClean.toLowerCase()) || 
-      subTopicClean.toLowerCase().includes(key.toLowerCase())
-    );
-    if (matchedKey) {
-      entry = topicData[matchedKey];
+      subtopicEntries.forEach(([subName, entry]) => {
+        if (entry.keyTerms) {
+          Object.entries(entry.keyTerms).forEach(([k, v]) => {
+            if (!combinedKeyTerms[k]) combinedKeyTerms[k] = v;
+          });
+        }
+        if (entry.collinsFocus) combinedCollinsFocus.push(`**${subName}**: ${entry.collinsFocus}`);
+        if (entry.cupFocus) combinedCupFocus.push(`**${subName}**: ${entry.cupFocus}`);
+        if (entry.evaluationPoints) combinedEvals.push(...entry.evaluationPoints);
+        if (entry.keyStudies) combinedStudies.push(...entry.keyStudies);
+        if (entry.contemporaryExamples) combinedExamples.push(...entry.contemporaryExamples);
+        if (entry.commonMisconceptions) combinedMisconceptions.push(...entry.commonMisconceptions);
+        if (entry.synopticLinks) combinedSynoptics.push(...entry.synopticLinks);
+        if (entry.keyStatistics) combinedStats.push(...entry.keyStatistics);
+        if (entry.theoristQuotes) combinedQuotes.push(...entry.theoristQuotes);
+      });
+
+      return `
+--- COMPREHENSIVE TEXTBOOK TOPIC OVERVIEW (${paperClean} - ${topicClean}: Overall Topic Masterclass) ---
+Key Sociological Thinkers & Researchers across this Topic:
+${allTheorists.slice(0, 15).join(", ")}
+
+Fundamental Conceptual Framework & Key Terms:
+${Object.entries(combinedKeyTerms).slice(0, 12).map(([term, def]) => `- **${term}**: ${def}`).join("\n")}
+
+Collins Textbook (Haralambos & Holborn et al.) Topic Scope & Focus:
+${combinedCollinsFocus.slice(0, 4).join("\n\n")}
+
+CUP Coursebook (Livesey & Blundell) Topic Scope & Focus:
+${combinedCupFocus.slice(0, 4).join("\n\n")}
+
+Core Sociological Debates & Evaluative Critiques (AO3):
+${Array.from(new Set(combinedEvals)).slice(0, 8).map(point => `- ${point}`).join("\n")}
+
+Landmark Empirical Studies across this Topic:
+${combinedStudies.slice(0, 5).map(s => `- **${s.researcher}** (${s.study}): [Method: ${s.method}] - ${s.findings}`).join("\n")}
+
+Contemporary Examples & Applications:
+${Array.from(new Set(combinedExamples)).slice(0, 4).map(ex => `- ${ex}`).join("\n")}
+
+Assessment Pitfalls & Key Synoptic Correlations:
+- Common Misconceptions to Avoid:
+${Array.from(new Set(combinedMisconceptions)).slice(0, 4).map(m => `  * ${m}`).join("\n")}
+- High-Scoring Synoptic Links:
+${Array.from(new Set(combinedSynoptics)).slice(0, 4).map(l => `  * ${l}`).join("\n")}
+
+Key Statistical Evidence & Empirical Trends:
+${Array.from(new Set(combinedStats)).slice(0, 4).map(st => `- ${st}`).join("\n")}
+
+Authentic Theorist Quotes for Essay Authority:
+${combinedQuotes.slice(0, 4).map(q => `- "${q.quote}" (${q.theorist})`).join("\n")}
+--------------------------------------------------
+`;
     }
   }
 
-  // Fallback to first available subtopic if still undefined
-  if (!entry) {
-    const keys = Object.keys(topicData);
-    if (keys.length > 0) {
-      entry = topicData[keys[0]];
+  // Handle specific subtopic lookup
+  let entry: TextbookRAGEntry | null = null;
+
+  // 1. Check deepened DB first for rich data
+  if (dbTopic) {
+    if (dbTopic[subTopicClean]) {
+      entry = dbTopic[subTopicClean] as TextbookRAGEntry;
+    } else {
+      const match = Object.keys(dbTopic).find(k => 
+        k.toLowerCase() === subTopicClean.toLowerCase() ||
+        k.toLowerCase().includes(subTopicClean.toLowerCase()) ||
+        subTopicClean.toLowerCase().includes(k.toLowerCase())
+      );
+      if (match) {
+        entry = dbTopic[match] as TextbookRAGEntry;
+      }
+    }
+  }
+
+  // 2. Check base sociologyRAG object if needed
+  const paperData = sociologyRAG[paperClean];
+  if (paperData) {
+    const topicData = paperData[topicClean];
+    if (topicData) {
+      const baseEntry = topicData[subTopicClean] || Object.values(topicData)[0];
+      if (baseEntry) {
+        entry = entry ? { ...baseEntry, ...entry } : baseEntry;
+      }
     }
   }
 
   if (!entry) return "";
 
-  // Merge deepened database entry if available
-  const dbTopic = deepenedPaper1Entries[topicClean];
-  if (dbTopic) {
-    const dbEntry = dbTopic[subTopicClean];
-    if (dbEntry) {
-      entry = {
-        ...entry,
-        ...dbEntry,
-      } as TextbookRAGEntry;
-    }
-  }
-
   return `
 --- TEXTBOOK RAG REFERENCE CONTEXT (${paperClean} - ${topicClean}: ${subTopicClean}) ---
-Theorists & Researchers: ${entry.theorists.join(", ")}
+Theorists & Researchers: ${entry.theorists ? entry.theorists.join(", ") : "N/A"}
 
 Core Terms & Academic Definitions:
-${Object.entries(entry.keyTerms).map(([term, def]) => `- **${term}**: ${def}`).join("\n")}
+${entry.keyTerms ? Object.entries(entry.keyTerms).map(([term, def]) => `- **${term}**: ${def}`).join("\n") : "N/A"}
 
 Collins Textbook (Haralambos & Holborn et al.) Key Focus:
-${entry.collinsFocus}
+${entry.collinsFocus || "N/A"}
 
 CUP Textbook (Livesey & Blundell) Key Focus:
-${entry.cupFocus}
+${entry.cupFocus || "N/A"}
 
 Essential Evaluation Points (AO3):
-${entry.evaluationPoints.map(point => `- ${point}`).join("\n")}
+${entry.evaluationPoints ? entry.evaluationPoints.map(point => `- ${point}`).join("\n") : "N/A"}
 
-Key Studies & Contemporary Examples:
-${entry.keyStudies ? entry.keyStudies.map(study => `- **${study.researcher}** (${study.study}): ${study.findings}`).join("\n") : "N/A"}
+Key Studies & Empirical Methodology:
+${entry.keyStudies ? entry.keyStudies.map(study => `- **${study.researcher}** (${study.study}) [${study.method}]: ${study.findings}`).join("\n") : "N/A"}
+
+Contemporary Real-World Applications:
 ${entry.contemporaryExamples ? entry.contemporaryExamples.map(ex => `- ${ex}`).join("\n") : ""}
 
 Assessment Pitfalls & Synoptic Links:
-${entry.commonMisconceptions ? "\nCommon Misconceptions (AVOID):" : ""}${entry.commonMisconceptions ? entry.commonMisconceptions.map(miss => `\n- ${miss}`).join("") : ""}
-${entry.synopticLinks ? "\nSynoptic Links (AO2/AO3 Bonus):" : ""}${entry.synopticLinks ? entry.synopticLinks.map(link => `\n- ${link}`).join("") : ""}
+${entry.commonMisconceptions ? "\nCommon Misconceptions (AVOID IN ESSAYS):" : ""}${entry.commonMisconceptions ? entry.commonMisconceptions.map(miss => `\n- ${miss}`).join("") : ""}
+${entry.synopticLinks ? "\nSynoptic Syllabus Correlations (Cross-Paper Links):" : ""}${entry.synopticLinks ? entry.synopticLinks.map(link => `\n- ${link}`).join("") : ""}
 
-${entry.keyStatistics ? `Key Statistics & Trend Data:\n${entry.keyStatistics.map(stat => `- ${stat}`).join("\n")}\n` : ""}${entry.essayArguments ? `Core Essay Debates:\n- For:\n${entry.essayArguments.for.map(arg => `  - ${arg}`).join("\n")}\n- Against:\n${entry.essayArguments.against.map(arg => `  - ${arg}`).join("\n")}\n` : ""}${entry.theoristQuotes ? `Direct Theorist Quotes:\n${entry.theoristQuotes.map(q => `- "${q.quote}" (${q.theorist})`).join("\n")}\n` : ""}--------------------------------------------------
+${entry.keyStatistics ? `Key Statistics & Empirical Trend Data:\n${entry.keyStatistics.map(stat => `- ${stat}`).join("\n")}\n` : ""}${entry.essayArguments ? `Core Essay Debates (Dialectic Analysis):\n- Thesis / Arguments Supporting:\n${entry.essayArguments.for.map(arg => `  * ${arg}`).join("\n")}\n- Antithesis / Arguments Challenging:\n${entry.essayArguments.against.map(arg => `  * ${arg}`).join("\n")}\n` : ""}${entry.theoristQuotes ? `Direct Theorist Quotes for Authentic Academic Voice:\n${entry.theoristQuotes.map(q => `- "${q.quote}" — ${q.theorist}`).join("\n")}\n` : ""}--------------------------------------------------
 `;
 }
 
@@ -2036,7 +2104,8 @@ export function searchSociologyRAGByQuestion(paperTitle: string, questionText: s
       let entry = topicObj[selectedSubTopic];
       if (entry) {
         // Merge deepened database entry if available
-        const dbTopic = deepenedPaper1Entries[selectedTopic];
+        const dbPaper = allDeepenedEntries[paperKey] || deepenedPaper1Entries;
+        const dbTopic = dbPaper[selectedTopic];
         if (dbTopic) {
           const dbEntry = dbTopic[selectedSubTopic];
           if (dbEntry) {

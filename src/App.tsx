@@ -23,14 +23,21 @@ import {
   ShieldAlert,
   TrendingUp,
   Clock,
-  Target
+  Target,
+  Database,
+  HelpCircle,
+  Camera
 } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import html2pdf from 'html2pdf.js';
 import { syllabus, practiceQuestions, paperTopics, pastPapers, paperSubTopics } from './data';
 import { getSociologyRAGContent, searchSociologyRAGByQuestion } from './sociologyRAG';
+import QuestionBankView from './components/QuestionBankView';
+import AskQuestionView from './components/AskQuestionView';
+import AnswerScannerView from './components/AnswerScannerView';
+import { sanitizeSociologyMarkdown, cleanPEELForProse, parsePEELParagraphs } from './markdownUtils';
+import { exportElementToPdf } from './pdfUtils';
 
 const safeJsonParse = (text: string) => {
   try {
@@ -69,7 +76,7 @@ const safeJsonParse = (text: string) => {
   }
 };
 
-type Tab = 'dashboard' | 'syllabus' | 'practice' | 'generate' | 'explain';
+type Tab = 'dashboard' | 'syllabus' | 'practice' | 'generate' | 'question-bank' | 'explain' | 'ask-question' | 'scan-answer';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -92,6 +99,18 @@ export default function App() {
             onClick={() => setActiveTab('dashboard')} 
             icon={<LayoutDashboard size={20} />} 
             label="Dashboard" 
+          />
+          <TabButton 
+            active={activeTab === 'scan-answer'} 
+            onClick={() => setActiveTab('scan-answer')} 
+            icon={<Camera size={20} />} 
+            label="Scan & Grade Answer" 
+          />
+          <TabButton 
+            active={activeTab === 'ask-question'} 
+            onClick={() => setActiveTab('ask-question')} 
+            icon={<HelpCircle size={20} />} 
+            label="Ask a Question" 
           />
           <TabButton 
             active={activeTab === 'explain'} 
@@ -117,6 +136,12 @@ export default function App() {
             icon={<Sparkles size={20} />} 
             label="AI Paper Generator" 
           />
+          <TabButton 
+            active={activeTab === 'question-bank'} 
+            onClick={() => setActiveTab('question-bank')} 
+            icon={<Database size={20} />} 
+            label="Question Bank" 
+          />
         </nav>
       </aside>
 
@@ -124,10 +149,13 @@ export default function App() {
       <main className="flex-1 h-screen overflow-y-auto p-6 md:p-10">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && <DashboardView onNavigate={setActiveTab} />}
+          {activeTab === 'scan-answer' && <AnswerScannerView />}
+          {activeTab === 'ask-question' && <AskQuestionView />}
           {activeTab === 'explain' && <ExplainView />}
           {activeTab === 'syllabus' && <SyllabusView />}
           {activeTab === 'practice' && <PracticeView />}
           {activeTab === 'generate' && <GenerateView />}
+          {activeTab === 'question-bank' && <QuestionBankView />}
         </AnimatePresence>
       </main>
     </div>
@@ -164,43 +192,50 @@ function DashboardView({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-4">
-            <BrainCircuit size={24} />
+        <div className="bg-white p-6 rounded-2xl border-2 border-indigo-200 shadow-sm relative overflow-hidden group hover:border-indigo-400 transition-all">
+          <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
+            <Camera size={24} />
           </div>
-          <h3 className="text-lg font-bold mb-2">Explain Topics</h3>
-          <p className="text-slate-600 text-sm mb-4">Get detailed, textbook-style explanations for any syllabus topic.</p>
-          <button onClick={() => onNavigate('explain')} className="text-indigo-600 font-semibold text-sm hover:underline">Learn More &rarr;</button>
+          <div className="inline-block px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-[11px] font-bold rounded-md mb-2 border border-indigo-200">
+            PDF & Photo OCR Marking
+          </div>
+          <h3 className="text-lg font-bold mb-2">Scan & Grade Answer</h3>
+          <p className="text-slate-600 text-sm mb-4">Upload PDF exam scripts or handwritten photos to get OCR transcription and official CAIE examiner marking.</p>
+          <button onClick={() => onNavigate('scan-answer')} className="text-indigo-600 font-bold text-sm hover:underline flex items-center gap-1">
+            Grade PDF / Script &rarr;
+          </button>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-all">
+          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center mb-4">
+            <HelpCircle size={24} />
+          </div>
+          <div className="inline-block px-2.5 py-0.5 bg-slate-100 text-slate-700 text-[11px] font-bold rounded-md mb-2">
+            4m • 8m • 10m • 26m
+          </div>
+          <h3 className="text-lg font-bold mb-2">Ask a Question</h3>
+          <p className="text-slate-600 text-sm mb-4">Generate A* model answers with textbook evidence and chief examiner reports.</p>
+          <button onClick={() => onNavigate('ask-question')} className="text-indigo-600 font-semibold text-sm hover:underline flex items-center gap-1">
+            Ask Custom Question &rarr;
+          </button>
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mb-4">
-            <BookOpen size={24} />
+            <Database size={24} />
           </div>
-          <h3 className="text-lg font-bold mb-2">4 Core Papers</h3>
-          <p className="text-slate-600 text-sm mb-4">Covering Socialisation, Family, Education, Globalisation, Media, and Religion.</p>
-          <button onClick={() => onNavigate('syllabus')} className="text-blue-600 font-semibold text-sm hover:underline">Explore Syllabus &rarr;</button>
+          <h3 className="text-lg font-bold mb-2">Question Bank</h3>
+          <p className="text-slate-600 text-sm mb-4">Comprehensive archive of Cambridge 9699 exam questions with instant model answers.</p>
+          <button onClick={() => onNavigate('question-bank')} className="text-blue-600 font-semibold text-sm hover:underline">Open Question Bank &rarr;</button>
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mb-4">
-            <FileText size={24} />
+            <BrainCircuit size={24} />
           </div>
-          <h3 className="text-lg font-bold mb-2">Exam Practice</h3>
-          <p className="text-slate-600 text-sm mb-4">Real past paper questions with detailed mark schemes and examiner guidance.</p>
-          <button onClick={() => onNavigate('practice')} className="text-emerald-600 font-semibold text-sm hover:underline">Start Practicing &rarr;</button>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center mb-4">
-            <Award size={24} />
-          </div>
-          <h3 className="text-lg font-bold mb-2">Assessment Objectives</h3>
-          <ul className="text-slate-600 text-sm space-y-2">
-            <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> AO1: Knowledge</li>
-            <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> AO2: Interpretation</li>
-            <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> AO3: Evaluation</li>
-          </ul>
+          <h3 className="text-lg font-bold mb-2">Explain Topics</h3>
+          <p className="text-slate-600 text-sm mb-4">Get detailed, textbook-style explanations for any syllabus topic with ASCII mindmaps.</p>
+          <button onClick={() => onNavigate('explain')} className="text-emerald-600 font-semibold text-sm hover:underline">Learn More &rarr;</button>
         </div>
       </div>
 
@@ -221,6 +256,91 @@ function DashboardView({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   );
 }
 
+interface PrintableExplainerProps {
+  paperNumber: number;
+  paperTitle: string;
+  topic: string;
+  subTopic: string;
+  content: string;
+  wordCount: number;
+}
+
+const PrintableExplainer = React.forwardRef<HTMLDivElement, PrintableExplainerProps>(
+  ({ paperNumber, paperTitle, topic, subTopic, content, wordCount }, ref) => {
+    const formattedDate = new Date().toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    return (
+      <div className="absolute top-0 left-[-9999px] z-[-50] w-[210mm]">
+        <div
+          ref={ref}
+          className="p-10 bg-white text-black font-sans printable-content"
+          style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', boxSizing: 'border-box' }}
+        >
+          {/* Minimalist Black & White Academic Header */}
+          <div className="border-b-2 border-black pb-4 mb-6 break-inside-avoid">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="text-[10px] font-bold tracking-widest text-neutral-800 uppercase">
+                  CAMBRIDGE INTERNATIONAL AS & A LEVEL SOCIOLOGY (9699)
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-black mt-1">
+                  {topic}
+                </h1>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold text-black uppercase">
+                  Paper {paperNumber}
+                </div>
+                <div className="text-[11px] text-neutral-600">
+                  {formattedDate}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-neutral-300 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-neutral-900">
+              <div>
+                <span className="font-semibold text-black">Syllabus Section:</span> {paperTitle}
+              </div>
+              <div>
+                <span className="font-semibold text-black">Focus Area:</span> {subTopic || 'Core Syllabus Specification'}
+              </div>
+              <div>
+                <span className="font-semibold text-black">Textbook Standard:</span> Collins & Cambridge University Press Aligned
+              </div>
+              <div>
+                <span className="font-semibold text-black">Synthesis Length:</span> {wordCount} words
+              </div>
+            </div>
+          </div>
+
+          {/* Explainer Content Body */}
+          <div className="markdown-body prose prose-slate max-w-none text-black text-sm leading-relaxed">
+            <Markdown remarkPlugins={[remarkGfm]}>
+              {sanitizeSociologyMarkdown(content)}
+            </Markdown>
+          </div>
+
+          {/* Footer */}
+          <div className="mt-12 pt-4 border-t border-black flex justify-between items-center text-[11px] text-neutral-600 break-inside-avoid">
+            <div>
+              <p className="font-bold text-black">Cambridge International AS & A Level Sociology (9699)</p>
+              <p className="text-[10px]">SocioPrep Masterclass Academic Explainer Series</p>
+            </div>
+            <div className="text-right">
+              <p className="font-semibold text-black">Paper {paperNumber}: {topic}</p>
+              <p className="text-[10px]">Collins & CUP Synthesis • High-Yield Revision</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+);
+
 function ExplainView() {
   const [selectedPaper, setSelectedPaper] = useState<number>(1);
   const [selectedTopic, setSelectedTopic] = useState<string>('');
@@ -229,12 +349,42 @@ function ExplainView() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [showRagPreview, setShowRagPreview] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+
+  const explainerPrintRef = useRef<HTMLDivElement>(null);
 
   const papers = [1, 2, 3, 4];
   const topicsForPaper = paperTopics[`Paper ${selectedPaper}` as keyof typeof paperTopics] || [];
   const subTopicsForTopic = (paperSubTopics[`Paper ${selectedPaper}`] && selectedTopic) 
     ? ['Introduction', ...(paperSubTopics[`Paper ${selectedPaper}`][selectedTopic] || [])] 
     : [];
+
+  const currentSubTopic = selectedSubTopic || 'Introduction';
+  const currentRagData = selectedTopic ? getSociologyRAGContent(`Paper ${selectedPaper}`, selectedTopic, currentSubTopic) : '';
+  const currentPaperTitle = syllabus.find(p => p.id === selectedPaper)?.title || `Paper ${selectedPaper}`;
+  const wordCount = explanation ? explanation.split(/\s+/).filter(Boolean).length : 0;
+
+  const handleExportPdf = async () => {
+    if (!explainerPrintRef.current || !explanation) return;
+    
+    setIsExportingPdf(true);
+    setError(null);
+    
+    try {
+      const element = explainerPrintRef.current;
+      const cleanTopic = (selectedTopic || 'Sociology').replace(/[^a-zA-Z0-9]/g, '_');
+      const cleanSub = (selectedSubTopic || 'Introduction').replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `Cambridge_Sociology_Paper_${selectedPaper}_${cleanTopic}_${cleanSub}_Explainer.pdf`;
+
+      await exportElementToPdf(element, filename);
+    } catch (err) {
+      console.error("Explainer PDF Generation Error:", err);
+      setError("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   const handleExplain = async () => {
     if (!selectedTopic) return;
@@ -265,44 +415,71 @@ function ExplainView() {
         }
       });
       const responseStream = await ai.models.generateContentStream({
-        model: "gemini-3.5-flash",
-        contents: `You are an outstanding, highly supportive, and engaging Cambridge Sociology textbook author and chief educator. Your mission is to provide an exceptionally comprehensive, detailed, and exhaustive explanation of the topic "${topicQuery}" that is EXACTLY or EXCEEDING 2000 words.
+        model: "gemini-3.7-flash",
+        contents: `You are an elite, highly supportive Cambridge Sociology textbook author and chief educator. Your mission is to provide an exceptionally comprehensive, detailed, and non-repetitive masterclass explanation of "${topicQuery}" (Paper ${selectedPaper}).
 
-        Keep the language accessible, clear, engaging, and highly student-friendly for AS & A-Level high school students (typically 16-18 years old). Avoid overly dry, postgraduate-level academic jargon or dense corporate prose, but do NOT sacrifice an ounce of depth or analytical quality. When introducing complex sociological terms, explain them immediately in simple, clear language with relatable examples!
+        ### CORE PEDAGOGICAL PRIORITY & DEPTH FOCUS:
+        - **Primary Concentration (85%+ of response)**: Dedicate the vast majority of your writing to deep, exhaustive, step-by-step explanations of **sociological concepts**, **thinkers' detailed research/ideas**, and **complex theoretical arguments & debates**.
+        - **Minimal Space for Ancillaries**: Keep meta-aspects like *Synoptic cross-paper links*, *Textbook differences (Collins vs. CUP)*, and *Glossaries/Exam tips* strictly condensed into brief, high-yield bullet points at the very end.
+        - **Target Audience**: AS & A-Level Sociology students (16-18 years old).
+        - **Tone & Style**: Academically deep, engaging, crystal-clear, and logically thorough. Avoid hollow fluff or superficial lists—unpack the "why" and "how" behind every theoretical mechanism.
 
-        Provide an in-depth, student-friendly but exhaustive masterclass-style guide on the following topic: "${topicQuery}".
-        
+        ### STRICT ANTI-REPETITION & DEPTH MANDATE:
+        - Unpack sociological theories not as static bullet points, but as living arguments with explanatory mechanisms, historical contexts, and concrete societal dynamics.
+        - Dive deep into specific thinkers: explain their underlying assumptions, their specific studies, how they gathered evidence, and why their claims matter.
+        - If a specific subtopic is selected ("${currentSubTopic}"), dive straight into its specialized mechanics without wasting space on generic, entry-level definitions of "${selectedTopic}".
+
         ${isIntroduction 
-          ? `This is an INTRODUCTION. Provide an expansive, sweeping overview of the main topic "${selectedTopic}", establishing its core concepts, key debates, and its fundamental significance in the Paper ${selectedPaper} curriculum. Introduce the big schools of thought (e.g., Structuralism vs. Action, Positivism vs. Interpretivism) in a way that is clear and easy to grasp while being rich in detail.`
-          : `This is a highly specialized SUB-TOPIC: "${currentSubTopic}". Focus strictly and deeply on this area. DO NOT waste paragraphs repeating general, entry-level definitions of the main topic "${selectedTopic}" (e.g., if selectedTopic is Socialisation, don't write generic paragraphs defining what socialisation is). Dive straight into the specific complex mechanics, case studies, specific theorists, and evaluative conflicts, using clear and understandable language.`
+          ? `### SCOPE: FULL TOPIC MASTERCLASS INTRODUCTION
+Provide a sweeping, conceptually profound masterclass on "${selectedTopic}". Thoroughly unpack the foundational sociological paradigms (Structuralism vs Social Action, Conflict vs Consensus, Positivism vs Interpretivism), structural dynamics, and historical debates in Paper ${selectedPaper}.`
+          : `### SCOPE: DEEP-DIVE SUBTOPIC MASTERCLASS: "${currentSubTopic}"
+Deliver an exhaustive, surgical analysis of "${currentSubTopic}". Focus intensely on its specific theoretical dynamics, empirical research, specific researchers, and evaluative clashes.`
         }
 
-        ${ragContext ? `Below is highly detailed context retrieved from both the official Collins and Cambridge University Press (Livesey & Blundell) coursebooks for this sub-topic. You MUST base your explanation heavily on these specific details, theorists, definitions, and evaluation points:
-        ${ragContext}
-        ` : ""}
+        ${ragContext ? `### TEXTBOOK REFERENCE DATA (Collins & Cambridge University Press):
+Integrate the following authoritative textbook empirical data, thinkers, and conceptual definitions into your detailed explanations:
+${ragContext}
+` : ""}
 
-        ### STUDENT-FRIENDLY AND STRUCTURAL DIRECTIVES FOR MAXIMUM DEPTH (~2000 WORDS):
-        1. **Clear, Accessible & Engaging A-Level Voice**: Keep the language clear, friendly, and structured. Break down complex, abstract ideas into digestible concepts. Use simple analogies where helpful (e.g., how structures in society act like the rules of a game), but remain focused purely on the core textbook materials.
-        2. **Exhaustive Explanation of Theories and Studies**: Do not summarize or gloss over crucial sociological theories. Provide grand, paragraph-by-paragraph deep-dives of the essential debates. For each major theorist mentioned, explain their background, how they conducted their study in plain English, what key findings they gathered, and why they matter for A Level.
-        3. **Complete Textbook Synthesis**: Explicitly compare and synthesize insights, research focuses, and theoretical emphases from BOTH the Collins Student's Book (Haralambos & Holborn et al.) and the Cambridge University Press Coursebook (Livesey & Blundell).
-        4. **Highly Structured & Legible Layout**: Organize the explanation of 2000+ words into these exact distinct educational sections:
-           - **### I. Introduction and Key Ideas (AO1)** (Clear definitions of core concepts, placing them in their theoretical context with simple, real-world illustrations. If **Key Statistics & Trend Data** is present in the textbook RAG context below, you MUST seamlessly integrate at least one relevant statistic here to illustrate trends.)
-           - **### II. Who Is Who? Key Theorists & Empirical Studies (AO2)** (Vivid and clear breakdowns of the key studies, methodologies, and contributions of specified theorists, explained in plain language. If **Direct Theorist Quotes** is present in the textbook RAG context below, you MUST weave in at least one theorist quote here to add authentic academic voice.)
-           - **### III. The Big Debates & Theoretical Perspectives** (Explaining how different sociological perspectives see this issue—e.g., how Marxists, Functionalists, Feminists, Interactionists, and Postmodernists view the topic. If **Core Essay Debates** is present in the textbook RAG context below, you MUST use the provided 'For' and 'Against' arguments to structure the debate in this section, referencing them explicitly.)
-           - **### IV. Syllabus Connections, Correlations & Synoptic Links (How It Connects)** (Explain deeply how this specific subtopic is correlated and connected with other topics in the syllabus. For instance, link this subtopic directly to socialisation, social control, identity, research methods, or theoretical debates. If **Synoptic Links** are present in the textbook RAG context below, you MUST weave them into your explanation to show how these concepts interconnect and can be cross-referenced to construct high-scoring synoptic essay arguments!)
-           - **### V. Evaluating the Arguments: Strengths and Weaknesses (AO3)** (A highly detailed but easy-to-follow critique of each perspective, pointing out what they do well and what they overlook or get wrong. If **Key Statistics & Trend Data** is present in the textbook RAG context below, you MUST use the statistics here as evidence to critique, support, or challenge these perspectives.)
-           - **### VI. Comparison: Collins vs. CUP Textbook Insights** (Direct, simple comparison of how the two primary textbooks cover this topic, highlighting any terms or perspectives unique to either book)
-           - **### VII. Student Glossary: Key Terms Made Simple** (Clear, direct, definitions of all key terms as they appear in the textbooks, phrased in an easy-to-understand way).
-        5. **Strict Formatting & Student Readability**: Use Markdown formatting. Always use double line breaks (empty lines) between paragraphs to keep the text breathable and easy on the eyes. Use bullet points or numbered lists generously to break down complex arguments. Use **bold** for key concepts and theorist names.
-        6. **No Syllabus Meta-talk**: Avoid referencing the syllabus code "9699" or the phrases "Cambridge syllabus", "AQA", etc. explicitly. Focus completely on the rich sociological content itself, but ensure all contents align perfectly with Paper ${selectedPaper} expectations.
+        ### REQUIRED MASTERCLASS STRUCTURE:
+        Please structure your explanation using the following exact markdown headers:
 
-        Textbook Context Reference:
-        - Paper 1: Socialisation, Identity, and Methods (Mead, Cooley, Goffman, Binet, Positivism vs Interpretivism).
-        - Paper 2: The Family (Murdock, Parsons, Zaretsky, Oakley, Willmott & Young, Finch, Silva).
-        - Paper 3: Education (Durkheim, Parsons, Bowles & Gintis, Althusser, Willis, Bourdieu, Reay).
-        - Paper 4: Globalisation, Media, and Religion (Wallerstein, Castells, Baudrillard, Galtung & Ruge, Weber, Bruce, Heelas & Woodhead).
+        ### I. Deep Conceptual Architecture & Visual Mindmap Diagram (AO1)
+        - **Visual Mindmap / Paradigm Architecture Diagram**: You MUST include an intricate, beautifully formatted ASCII visual mindmap or paradigm comparison box diagram inside a fenced code block (\`\`\`text ... \`\`\`) using box-drawing characters (┌─┐, │, └─┘, ├─┤), directional arrows (──>, ◄──►), and aligned columns. Visually map out the core concepts, causal pathways, or paradigm trees (e.g. Essentialist vs. Anti-Essentialist/Hybrid paradigms, Positivism vs. Interpretivism epistemological flow, Structuralism vs. Social Action, or Functionalist AGIL schema).
+        - Exhaustive, crystal-clear explanation of the core concepts, underlying social structures, dynamics, and processes.
+        - Step-by-step unpacking of abstract mechanisms with concrete, relatable real-world illustrations.
+        - Seamless integration of relevant empirical statistics, historical shifts, or trend data.
 
-        Ensure it is incredibly detailed, highly comprehensive, structurally beautiful, and easy for an A-Level student to read, process, and use in their exams. Only output the generated markdown content without any meta-text, introductory conversational preambles, or final comments.`,
+        ### II. Comprehensive Thinker Profiles & Landmark Empirical Research (AO2)
+        - In-depth, individual profiles of the key sociologists and researchers relevant to this topic.
+        - Detail their empirical investigations: research context, sample design, methodology (e.g. participant observation, longitudinal surveys, semi-structured interviews), qualitative/quantitative findings, and theoretical significance.
+        - Weave in direct theorist quotes to demonstrate authentic academic vocabulary and voice.
+        - Explain precisely how each study supports or challenges conventional societal assumptions.
+
+        ### III. Theoretical Clashes, Perspectives & Dialectical Arguments (AO2/AO3)
+        - Comprehensive, multi-paragraph exploration of how differing sociological traditions (e.g. Functionalism, Marxism, Feminism, Interactionism/Social Action, Postmodernism, New Right) conceptualize and debate this issue.
+        - **Dialectical Clash Map / Matrix**: Include a visual comparison ASCII matrix or flowchart (in \`\`\`text ... \`\`\`) contrasting the rival theoretical mechanisms, ontological assumptions, and core fault lines.
+        - Frame the deep dialectic arguments: what is the core thesis of each perspective? What mechanisms do they emphasize (e.g. ideological control, consensus maintenance, patriarchal reinforcement, symbolic labelling, hyperreality)?
+        - Detail specific point-counterpoint arguments between rival schools of thought.
+
+        ### IV. Rigorous Critical Evaluation & Methodological Debates (AO3)
+        - Systematic, high-level critique evaluating the explanatory power, logical coherence, and blind spots of each perspective and theory.
+        - Methodological critiques of key empirical research (e.g. sample size, ecological validity, researcher imposition, androcentric bias, historical relativity).
+        - Detailed breakdown of common student misconceptions and exactly why they are flawed in academic analysis.
+
+        ### V. Concise Exam Synthesis & Key Takeaways (Compact Summary)
+        *(Keep this section brief and tightly formatted as concise bullet points)*
+        - **Synoptic Connections**: 2-3 brief bullet links showing how this topic connects across other syllabus areas (e.g. methods, stratification, family, education, globalisation).
+        - **Textbook Nuance**: A brief note comparing how Haralambos & Holborn (Collins) vs. Livesey & Blundell (CUP) approach this topic.
+        - **Key Terms Refresher**: Crisp 1-sentence definitions of the top 3-5 essential terms.
+
+        ### FORMATTING & READABILITY:
+        - Use double line breaks between paragraphs for clean readability.
+        - ASCII MINDMAPS & DIAGRAMS: Always wrap ASCII diagrams, concept maps, and comparison box trees inside fenced code blocks (\`\`\`text ... \`\`\`) with crisp box alignment.
+        - NATURAL SPACING & WORD SEPARATION: Always ensure standard spaces between words, before/after parentheses, after punctuation (commas, colons, semicolons), and around bold tags (e.g. write "social identity (the external..." and "and **personal identity** or 'self-concept'..." and "theory: **structuralism versus social action**, **consensus versus conflict**, and **positivism versus interpretivism**"). Never fuse words together without spaces.
+        - BOLD ALL KEYWORDS: You MUST systematically and thoroughly BOLD (using **bold** markdown tags) all key concepts, theories, named sociologists/thinkers (with dates), landmark research studies, and methodological terms (e.g. **Talcott Parsons (1951)**, **warm bath theory**, **functional fit**, **structural differentiation**, **ideological state apparatus**, **Louis Althusser (1971)**, **triangulation**, **ecological validity**).
+        - BOLD SYNTAX: Always format bold keywords strictly as **keyword** with normal spaces before the opening ** and after the closing **. Never escape asterisks with backslashes.
+        - Do not output meta-commentary, introductory greetings, or sign-offs. Output only the pure, formatted masterclass guide.`,
         config: {
           maxOutputTokens: 8192
         }
@@ -355,7 +532,7 @@ function ExplainView() {
       });
 
       const responseStream = await ai.models.generateContentStream({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: `You are continuing a highly detailed, textbook-style Cambridge Sociology explanation that was cut off due to character/token limits.
         
         The overall topic is: "${topicQuery}".
@@ -369,8 +546,9 @@ function ExplainView() {
         YOUR TASK: Resume the explanation SEAMLESSLY.
         - Start writing EXACTLY where the text was cut off, matching the tone, style, and structure.
         - Do not repeat anything that was already written.
-        - Make sure to cover the remaining sections or details specified in the original directives (such as: theories, studies, evaluations, textbook comparisons, or key term glossary) if they were not fully completed.
+        - Make sure to cover the remaining sections or details specified in the masterclass structure (such as: deep concept analysis, thinker profiles & empirical studies, theoretical clashes & dialectic arguments, critical evaluations, or the compact exam summary) if they were not fully completed.
         - Ensure double line breaks between paragraphs for maximum student readability.
+        - Systematically BOLD (using **bold** markdown tags) key sociological terms, concepts, theories, named thinkers, and research studies.
         - Do not include any introductory meta-text (e.g., "Sure, continuing now..."), concluding remarks, or markdown wrappers other than the resumed text itself. Just output the text to be appended.`,
         config: {
           maxOutputTokens: 8192
@@ -480,14 +658,51 @@ function ExplainView() {
           </div>
         </div>
 
-        <button
-          onClick={handleExplain}
-          disabled={!selectedTopic || loading || isStreaming}
-          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-        >
-          {(loading || isStreaming) ? <Loader2 className="animate-spin" size={20} /> : <Sparkles size={20} />}
-          {loading ? 'Consulting Textbooks...' : isStreaming ? 'Streaming Explanation...' : 'Generate Textbook Explanation'}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={handleExplain}
+            disabled={!selectedTopic || loading || isStreaming}
+            className="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+          >
+            {(loading || isStreaming) ? <Loader2 className="animate-spin" size={20} /> : <Sparkles size={20} />}
+            {loading ? 'Consulting Textbooks...' : isStreaming ? 'Streaming Explanation...' : 'Generate Comprehensive Explanation'}
+          </button>
+          {selectedTopic && currentRagData && (
+            <button
+              onClick={() => setShowRagPreview(!showRagPreview)}
+              className={`px-5 py-3.5 rounded-xl font-bold text-sm transition-all border flex items-center justify-center gap-2 whitespace-nowrap ${
+                showRagPreview 
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700' 
+                  : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+              }`}
+            >
+              <BookOpen size={18} />
+              {showRagPreview ? 'Hide Textbook Data' : 'Textbook Core Notes'}
+            </button>
+          )}
+        </div>
+
+        {showRagPreview && currentRagData && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-indigo-50/70 border border-indigo-100 rounded-xl p-5 text-sm space-y-3"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-indigo-200/50">
+              <span className="font-bold text-indigo-900 flex items-center gap-1.5">
+                <BookOpen size={16} className="text-indigo-600" />
+                Textbook Database Context: {selectedTopic} {selectedSubTopic ? `(${selectedSubTopic})` : ''}
+              </span>
+              <span className="text-xs bg-white text-indigo-700 px-2.5 py-0.5 rounded-full font-semibold border border-indigo-200">
+                Collins & CUP Synthesized
+              </span>
+            </div>
+            <pre className="text-xs text-slate-700 font-sans whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto bg-white/80 p-4 rounded-lg border border-indigo-100">
+              {currentRagData}
+            </pre>
+          </motion.div>
+        )}
       </div>
 
       {error && (
@@ -511,23 +726,41 @@ function ExplainView() {
               <BookOpen size={16} />
               <span>Collins & Cambridge Coursebook Synthesis</span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
               {isStreaming && (
                 <span className="bg-amber-100 text-amber-800 text-xs px-3 py-1 rounded-full font-bold shadow-sm whitespace-nowrap flex items-center gap-1.5 animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
                   Writing...
                 </span>
               )}
-              <span className="bg-indigo-50 text-indigo-700 text-xs px-3 py-1 rounded-full font-bold shadow-sm whitespace-nowrap">
-                📚 Comprehensive Academic Synthesis
+              <span className="bg-indigo-50 text-indigo-700 text-xs px-3 py-1 rounded-full font-bold shadow-sm whitespace-nowrap hidden sm:inline-block">
+                📚 Academic Synthesis
               </span>
               <span className="bg-emerald-50 text-emerald-700 text-xs px-3 py-1 rounded-full font-bold shadow-sm whitespace-nowrap">
-                ⚡ {explanation.split(/\s+/).filter(Boolean).length} Words Included
+                ⚡ {wordCount} Words
               </span>
+              <button
+                onClick={handleExportPdf}
+                disabled={isStreaming || isExportingPdf}
+                className="flex items-center gap-1.5 px-3.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-full shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap cursor-pointer ml-1"
+                title="Download comprehensive study guide PDF"
+              >
+                {isExportingPdf ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Generating PDF...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={13} />
+                    <span>Export PDF</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
           <div className="markdown-body prose prose-slate max-w-none">
-            <Markdown remarkPlugins={[remarkGfm]}>{explanation}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{sanitizeSociologyMarkdown(explanation)}</Markdown>
           </div>
 
           {!isStreaming && !loading && (
@@ -536,17 +769,49 @@ function ExplainView() {
                 <Sparkles size={14} className="text-indigo-500" />
                 <span>Was the explanation cut off? You can seamlessly request the AI to continue writing exactly from where it stopped.</span>
               </div>
-              <button
-                onClick={handleContinue}
-                disabled={loading || isStreaming}
-                className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-sm transition-all flex items-center gap-2 shadow-sm whitespace-nowrap"
-              >
-                <Sparkles size={16} />
-                Continue Writing
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  onClick={handleExportPdf}
+                  disabled={loading || isStreaming || isExportingPdf}
+                  className="px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl font-bold text-sm transition-all flex items-center gap-2 shadow-sm whitespace-nowrap active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  {isExportingPdf ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin text-indigo-600" />
+                      <span>Building PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={16} className="text-indigo-600" />
+                      <span>Download PDF</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleContinue}
+                  disabled={loading || isStreaming}
+                  className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-sm transition-all flex items-center gap-2 shadow-sm whitespace-nowrap active:scale-95"
+                >
+                  <Sparkles size={16} />
+                  Continue Writing
+                </button>
+              </div>
             </div>
           )}
         </motion.div>
+      )}
+
+      {/* Printable Masterclass Explainer Template for html2pdf */}
+      {explanation && (
+        <PrintableExplainer
+          ref={explainerPrintRef}
+          paperNumber={selectedPaper}
+          paperTitle={currentPaperTitle}
+          topic={selectedTopic}
+          subTopic={currentSubTopic}
+          content={explanation}
+          wordCount={wordCount}
+        />
       )}
 
       {!explanation && !loading && !error && (
@@ -1044,6 +1309,7 @@ function PracticeView() {
   const [error, setError] = useState<string | null>(null);
   const [showGuidelines, setShowGuidelines] = useState(false);
   const [selectedPaperTab, setSelectedPaperTab] = useState<'all' | 'paper1' | 'paper2' | 'paper3' | 'paper4'>('all');
+  const [answerFormat, setAnswerFormat] = useState<'standard' | 'peel'>('standard');
 
   const filteredPapers = pastPapers.filter((paper) => {
     if (selectedPaperTab === 'all') return true;
@@ -1075,7 +1341,14 @@ function PracticeView() {
         throw new Error('Gemini API Key is missing. Please configure it in the settings.');
       }
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ 
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
       
       const prompt = `You are a top-tier Sociology Examiner and Subject Expert specializing in the Cambridge International June/Nov AS & A Level Exam (9699).
       Synthesize knowledge from the "Collins Cambridge International AS & A Level Sociology" and "Cambridge University Press Coursebook by Livesey and Blundell" textbooks.
@@ -1088,63 +1361,71 @@ function PracticeView() {
       
       Question: "${questionText}" [${marks} marks]
       
-      You MUST tailor your answer's length, structure, and approach STRICTLY according to the number of marks, mirroring actual Cambridge candidates' high-scoring scripts. Follow these strict, mark-specific grading rubrics:
+      MARK TARIFF & PEEL REQUIREMENT DIRECTIVES:
+      The structure and number of PEEL (Point, Evidence, Explanation + Evaluation, Link) paragraphs MUST strictly depend on the question mark tariff (${marks} marks):
 
-      === [2 MARKS / 4 MARKS] Questions (e.g., "Describe two...") ===
-      - DO NOT write an introduction or conclusion. Start directly.
-      - Identify exactly TWO points separated by double empty lines.
-      - Format each as: 
-        **Point 1: [Name/Identity of factor]** - [Brief elaboration and a highly specific, concrete example or sociological study to secure development marks].
-      - Keep the overall length concise (60-120 words total). Avoid long narrative fluff.
+      1. [2 MARKS & 4 MARKS] Questions (e.g. "Describe two..."):
+         - PEEL COUNT = 0 (DO NOT USE PEEL!).
+         - A 4-mark question ONLY asks for 2 direct descriptions. Using PEEL or evaluation for a 4-mark question is incorrect exam technique.
+         - Format strictly as two concise direct points:
+           **Point 1: [Identity/Concept]** - [Brief elaboration & concrete sociological example].
+           **Point 2: [Identity/Concept]** - [Brief elaboration & concrete sociological example].
 
-      === [6 MARKS] Questions (e.g., "Explain two limitations...") ===
-      - Provide exactly TWO points. Each point is worth 3 marks and must follow this 3-step sequence:
-        1. Identify the factor/limitation/reason clearly.
-        2. Explain *why* the method/context suffers from this factor (incorporating concepts like observer effect, hawthorne effect, control of variables, etc.).
-        3. Explain the *direct consequence/impact* of this limitation on the research quality (e.g., how it reduces validity, compromises reliability, or violates ethical standards).
-      - Separated by double line breaks. Keep it concise (120-180 words total).
+      2. [6 MARKS] Questions (e.g. "Explain two limitations..." or "Give one argument against..."):
+         - For "Explain two [limitations/features]": PEEL COUNT = 2 Mini-PEELs or Developed Points (3 marks each). 2 concise points covering factor, sociological mechanism, and research consequence.
+         - For "Give one argument against...": PEEL COUNT = 1 Full Counter-PEEL (6 marks).
 
-      === [8 MARKS] Questions (e.g., "Explain two reasons...") ===
-      - Provide exactly TWO points (4 marks each) using a strict PEEL (Point, Evidence, Explanation, Link) paragraph model:
-        1. POINT: Clearly state the factor or reason.
-        2. EVIDENCE: Introduce specific named theorists, sociological research studies, or methodologies (e.g., Bourdieu's habitus, Willis's "the lads", etc.).
-        3. EXPLANATION: Deeply explain the exact connection, using professional, dense academic terminology. Don't just list buzzwords; prove *why* and *how* it answers the question.
-        4. LINK: Tie the explanation back to the question statement.
-      - Separate the two points with a double line break. Approx 200-300 words total.
+      3. [8 MARKS] Questions (e.g. "Explain two reasons..."):
+         - PEEL COUNT = EXACTLY 2 PEEL PARAGRAPHS (4 marks each).
+         - Each paragraph must cover Point, Evidence (theorist/study), Explanation, and Link back to the question.
 
-      === [10 MARKS] Questions (e.g., "Explain this view...") ===
-      - Write exactly a 2-paragraph highly structured response (around 300 words total):
-        - Paragraph 1: State the first core argument for the view. Define key terms immediately. Ground the argument in specific sociological perspectives (Feminist, Functionalist, Marxist, Postmodernist) and specific named theorists or structural agents. Provide a detailed concrete example to support it.
-        - Paragraph 2: State the second core argument for the view. Ground it in another alternative theorist/theory. Explain the sociological mechanism and provide a detailed study/example.
+      4. [10 MARKS] Questions (e.g. "Explain this view..."):
+         - PEEL COUNT = EXACTLY 2 RICH DEVELOPED PEEL PARAGRAPHS (5 marks each).
+         - Grounded deeply in primary sociological perspectives (Functionalism, Marxism, Feminism, Postmodernism) and empirical evidence.
 
-      === [6 MARKS (Counter-Argument, e.g., "Using sociological material, give one argument against...")] ===
-      - Write exactly ONE highly developed counter-argument paragraph (approx 100-150 words):
-        1. POINT: Clearly identify the opposing argument (e.g., biological determinants, or radical feminist continued patriarchy).
-        2. EVIDENCE: Cite and describe relevant sociology/theorists (e.g., Lombroso's crime traits, Walby/Oakley's continued domestic oppression).
-        3. APPLICATION: Deeply explain their arguments/evidence.
-        4. LINK: Construct an explicit and strong final analytical link that connects this counter-theory back to show *why and how* it directly undermines the original target view.
+      5. [26 MARKS] Essay Questions (Paper 1 & 2 Section B Essays e.g. "Evaluate the view..."):
+         - PEEL COUNT = 4 TO 6 PEEL PARAGRAPHS.
+         - Structure: 
+           • Continuous Introduction (0 PEEL tags): Define terms, state thesis & theoretical tension.
+           • 2-3 Supporting PEEL Paragraphs.
+           • 2-3 Evaluating/Counter PEEL Paragraphs (starting with "However...", testing validity, methodology, or competing theoretical angles).
+           • Continuous Conclusion (0 PEEL tags): Final nuanced synoptic judgement.
 
-      === [26 MARKS / 35 MARKS] Essay Questions (e.g., "Evaluate the view...") ===
-      - Write a highly academic, comprehensive, and critical essay (700-1000 words). MUST follow this modular paragraph-by-paragraph structure:
-        1. **Introduction**: Define terms, identify the key theoretical tension (e.g., Positivism vs Interpretivism, Peers vs Media/Family/Education).
-        2. **Supporting Argument 1**: Draft a rich supporting PEEL paragraph. Ground it in specific named theorists/empirical studies and primary key concepts.
-        3. **Ongoing Evaluation of Supporting Argument 1**: Immediately follow with a critical evaluation paragraph starting with "However...". Directly challenge argument 1's methodology, validity, or theoretical bias.
-        4. **Supporting Argument 2**: Add a second supportive PEEL paragraph covering a different dimension (e.g., alternative study or dynamic).
-        5. **Ongoing Evaluation of Supporting Argument 2**: Immediately evaluate it critically.
-        6. **Alternative/Counter-Perspective 1 (Opposing Side)**: Construct a powerful paragraph arguing for the alternative perspective or agent (e.g., if peers, argue why Media or Education is actually more key, using theorists like Neil Postman, Bowles & Gintis, Jock Young, etc.).
-        7. **Alternative/Counter-Perspective 2 (Opposing Side)**: Introduce secondary alternative perspective/agent with studies.
-        8. **Conclusion**: End with a nuanced synoptic synthesis. Avoid repeating what was said; instead, form a final evaluative judgement weighing both sides.
+      6. [35 MARKS] Advanced Essay Questions (Paper 3 & 4 Essays e.g. "Evaluate the view..."):
+         - PEEL COUNT = 6 TO 8 PEEL PARAGRAPHS.
+         - Structure:
+           • Continuous Introduction (0 PEEL tags): Conceptual definitions, thesis & roadmap.
+           • 6-8 PEEL Body Paragraphs systematically alternating between supporting theoretical claims and critical counter-evaluations (testing scope, measurement issues, structural vs action perspectives, historical shifts).
+           • Continuous Conclusion (0 PEEL tags): Final qualified evaluative judgement.
 
-      CRITICAL DIRECTIVES:
+      ${answerFormat === 'peel' ? `
+      FORMATTING INSTRUCTION (PEEL STUDY MODE ENABLED):
+      For all analytical body paragraphs (6m counter-arguments, 8m, 10m, 26m, and 35m questions), explicitly partition and tag each body paragraph using exact uppercase bold tags:
+      **POINT** - [Insert debating claim here]
+      **EVIDENCE** - [Insert concepts, perspective, thinker, or study here]
+      **EXPLANATION + EVALUATION** - [Show how evidence affects claim, then test scope, assumptions, or competing explanations. Weave AO3 evaluation directly here!]
+      **LINK** - [Insert direct link and qualified mini-judgement back to question wording]
+      
+      Note: For 2-mark or 4-mark short questions, DO NOT use PEEL tags, as they require 0 PEELs (only direct bulleted Point 1 / Point 2).
+      ` : `
+      FORMATTING INSTRUCTION (STANDARD PROSE MODE):
+      Write all paragraphs in natural continuous academic prose, keeping the mark-dependent structure and paragraph counts above without explicit PEEL tags.
+      `}
+
+      CRITICAL KEYWORD BOLDING & DIRECTIVES:
       - NEVER mention the syllabus code "9699" or the phrase "Cambridge syllabus" in the text.
       - Use dense, precise sociological terms from the Collins/Livesey Coursebook.
-      - Use double line breaks between paragraphs. Use markdown **bold** to highlight key theorist names and terms.
+      - NATURAL SPACING & WORD SEPARATION: Always ensure standard spaces between words, before/after parentheses, after punctuation (commas, colons, semicolons), and around bold tags (e.g. write "social identity (the external..." and "and **personal identity** or 'self-concept'..." and "theory: **structuralism versus social action**, **consensus versus conflict**, and **positivism versus interpretivism**"). Never fuse words together without spaces.
+      - BOLD ALL KEYWORDS: You MUST systematically and thoroughly BOLD (using **bold** markdown tags) all key sociological terms, core concepts, theoretical perspectives, named sociologists/thinkers (with publication years), empirical studies, research methods, and core analytical vocabulary across every paragraph (e.g. **Talcott Parsons (1951)**, **warm bath theory**, **functional fit**, **ideological state apparatus**, **Louis Althusser (1971)**, **structural differentiation**, **interpretivism**, **positivism**, **ecological validity**, **triangulation**, **Hawthorne effect**, **March of Progress**, **dual burden**, **triple shift**).
+      - BOLD SYNTAX: Always format bold keywords strictly as **keyword** with normal spaces before the opening ** and after the closing **. Never escape asterisks with backslashes.
+      - Ensure that in every paragraph, the primary sociological keywords, concepts, and names are highlighted in **bold** markdown tags so that critical exam terms and theoretical vocabulary stand out immediately.
+      - Use double line breaks between paragraphs.
       - Output MUST be a valid JSON object. Escape quotes and newlines accurately inside string properties.
       
       Also provide a brief analysis of why it scores well (AO1/AO2/AO3).`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: prompt,
         config: {
           maxOutputTokens: 8192,
@@ -1263,6 +1544,33 @@ function PracticeView() {
         </button>
       </div>
 
+      {/* Answer Generation Format Settings */}
+      <div className="bg-slate-50 border border-slate-150 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center">
+            <Sparkles size={16} />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-slate-800">Model Answer Generation Format</h4>
+            <p className="text-[11px] text-slate-500">Choose how the AI should structure new model answers</p>
+          </div>
+        </div>
+        <div className="flex bg-slate-200/80 p-0.5 rounded-lg border border-slate-300">
+          <button
+            onClick={() => setAnswerFormat('standard')}
+            className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${answerFormat === 'standard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Standard Prose
+          </button>
+          <button
+            onClick={() => setAnswerFormat('peel')}
+            className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${answerFormat === 'peel' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            PEEL Study Structure
+          </button>
+        </div>
+      </div>
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl flex items-center gap-3">
           <AlertCircle size={20} />
@@ -1361,10 +1669,8 @@ function PracticeView() {
                                                         </div>
                                                         
                                                         {subAnswer ? (
-                                                          <div className="bg-blue-50 rounded-xl p-4 space-y-4">
-                                                            <div className="markdown-body prose prose-sm max-w-none">
-                                                              <Markdown remarkPlugins={[remarkGfm]}>{subAnswer.content}</Markdown>
-                                                            </div>
+                                                          <div className="bg-blue-50/50 rounded-2xl p-5 space-y-4 border border-blue-100">
+                                                            <ModelAnswerContainer answer={subAnswer} />
                                                           </div>
                                                         ) : (
                                                           <button 
@@ -1400,18 +1706,8 @@ function PracticeView() {
                                         </div>
 
                                         {answer && (
-                                          <div className="mt-4 bg-blue-50 rounded-xl p-6 space-y-6">
-                                            <div className="flex justify-between items-center">
-                                              <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-100 px-2 py-0.5 rounded">Model Answer</span>
-                                              <span className="text-[10px] font-bold text-blue-400">{answer.wordCount} Words</span>
-                                            </div>
-                                            <div className="markdown-body prose prose-slate max-w-none">
-                                              <Markdown remarkPlugins={[remarkGfm]}>{answer.content}</Markdown>
-                                            </div>
-                                            <div className="bg-slate-900 rounded-xl p-4 text-white text-xs">
-                                              <p className="font-bold text-indigo-400 mb-2 uppercase tracking-wider">Examiner Analysis</p>
-                                              <p className="opacity-80 leading-relaxed">{answer.analysis}</p>
-                                            </div>
+                                          <div className="mt-4 bg-blue-50/50 rounded-2xl p-6 space-y-6 border border-blue-100">
+                                            <ModelAnswerContainer answer={answer} />
                                           </div>
                                         )}
                                       </div>
@@ -1484,18 +1780,8 @@ function PracticeView() {
                   </div>
 
                   {answer ? (
-                    <div className="bg-blue-50 rounded-2xl p-6 space-y-6">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-100 px-2 py-0.5 rounded">Model Answer</span>
-                        <span className="text-[10px] font-bold text-blue-400">{answer.wordCount} Words</span>
-                      </div>
-                      <div className="markdown-body prose prose-slate max-w-none">
-                        <Markdown remarkPlugins={[remarkGfm]}>{answer.content}</Markdown>
-                      </div>
-                      <div className="bg-slate-900 rounded-xl p-4 text-white text-xs">
-                        <p className="font-bold text-indigo-400 mb-2 uppercase tracking-wider">Examiner Analysis</p>
-                        <p className="opacity-80 leading-relaxed">{answer.analysis}</p>
-                      </div>
+                    <div className="bg-blue-50/50 rounded-3xl p-6 space-y-6 border border-blue-100 shadow-sm">
+                      <ModelAnswerContainer answer={answer} />
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1822,6 +2108,7 @@ function GenerateView() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GeneratedPaper | null>(null);
   const [modelAnswers, setModelAnswers] = useState<Record<string, ModelAnswer>>({});
+  const [answerFormat, setAnswerFormat] = useState<'standard' | 'peel'>('standard');
 
   const componentRef = useRef<HTMLDivElement>(null);
   
@@ -1830,35 +2117,8 @@ function GenerateView() {
     
     try {
       const element = componentRef.current;
-      
-      // Temporarily bring it into view for html2canvas to capture it properly
-      // html2canvas sometimes struggles with elements completely off-screen
-      const parent = element.parentElement;
-      if (parent) {
-        parent.style.position = 'absolute';
-        parent.style.left = '0';
-        parent.style.top = '0';
-        parent.style.zIndex = '-50';
-        parent.style.opacity = '1';
-      }
-
-      const opt = {
-        margin:       0,
-        filename:     `Sociology_${selectedPaper}_Exam.pdf`,
-        image:        { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, logging: false, windowWidth: 1024 },
-        jsPDF:        { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
-      };
-
-      await html2pdf().set(opt).from(element).save();
-
-      // Restore original styles
-      if (parent) {
-        parent.style.position = 'absolute';
-        parent.style.left = '-9999px';
-        parent.style.top = '0';
-        parent.style.zIndex = '-50';
-      }
+      const filename = `Sociology_${selectedPaper.replace(/\s+/g, '_')}_Exam.pdf`;
+      await exportElementToPdf(element, filename);
     } catch (err) {
       console.error("PDF Generation Error:", err);
       setError("Failed to generate PDF. Please try again.");
@@ -1877,7 +2137,14 @@ function GenerateView() {
         throw new Error('Gemini API Key is missing. Please configure it in the settings.');
       }
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ 
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
       const randomSeed = Math.floor(Math.random() * 1000000);
       
       const paperTopicGuidance = {
@@ -1916,7 +2183,7 @@ function GenerateView() {
            CRITICAL: Ensure the output is a valid JSON object. Escape all double quotes and newlines within string values correctly.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: prompt,
         config: {
           maxOutputTokens: 8192,
@@ -1999,7 +2266,14 @@ function GenerateView() {
         throw new Error('Gemini API Key is missing. Please configure it in the settings.');
       }
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ 
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
       
       const prompt = `You are a top-tier Sociology Examiner and Subject Expert specializing in the Cambridge International June/Nov AS & A Level Exam (9699).
       Synthesize knowledge from the "Collins Cambridge International AS & A Level Sociology" and "Cambridge University Press Coursebook by Livesey and Blundell" textbooks.
@@ -2012,63 +2286,71 @@ function GenerateView() {
       
       Question ${questionId} [${marks} marks]: "${questionText}"
       
-      You MUST tailor your answer's length, structure, and approach STRICTLY according to the number of marks, mirroring actual Cambridge candidates' high-scoring scripts. Follow these strict, mark-specific grading rubrics:
+      MARK TARIFF & PEEL REQUIREMENT DIRECTIVES:
+      The structure and number of PEEL (Point, Evidence, Explanation + Evaluation, Link) paragraphs MUST strictly depend on the question mark tariff (${marks} marks):
 
-      === [2 MARKS / 4 MARKS] Questions (e.g., "Describe two...") ===
-      - DO NOT write an introduction or conclusion. Start directly.
-      - Identify exactly TWO points separated by double empty lines.
-      - Format each as: 
-        **Point 1: [Name/Identity of factor]** - [Brief elaboration and a highly specific, concrete example or sociological study to secure development marks].
-      - Keep the overall length concise (60-120 words total). Avoid long narrative fluff.
+      1. [2 MARKS & 4 MARKS] Questions (e.g. "Describe two..."):
+         - PEEL COUNT = 0 (DO NOT USE PEEL!).
+         - A 4-mark question ONLY asks for 2 direct descriptions. Using PEEL or evaluation for a 4-mark question is incorrect exam technique.
+         - Format strictly as two concise direct points:
+           **Point 1: [Identity/Concept]** - [Brief elaboration & concrete sociological example].
+           **Point 2: [Identity/Concept]** - [Brief elaboration & concrete sociological example].
 
-      === [6 MARKS] Questions (e.g., "Explain two limitations...") ===
-      - Provide exactly TWO points. Each point is worth 3 marks and must follow this 3-step sequence:
-        1. Identify the factor/limitation/reason clearly.
-        2. Explain *why* the method/context suffers from this factor (incorporating concepts like observer effect, hawthorne effect, control of variables, etc.).
-        3. Explain the *direct consequence/impact* of this limitation on the research quality (e.g., how it reduces validity, compromises reliability, or violates ethical standards).
-      - Separated by double line breaks. Keep it concise (120-180 words total).
+      2. [6 MARKS] Questions (e.g. "Explain two limitations..." or "Give one argument against..."):
+         - For "Explain two [limitations/features]": PEEL COUNT = 2 Mini-PEELs or Developed Points (3 marks each). 2 concise points covering factor, sociological mechanism, and research consequence.
+         - For "Give one argument against...": PEEL COUNT = 1 Full Counter-PEEL (6 marks).
 
-      === [8 MARKS] Questions (e.g., "Explain two reasons...") ===
-      - Provide exactly TWO points (4 marks each) using a strict PEEL (Point, Evidence, Explanation, Link) paragraph model:
-        1. POINT: Clearly state the factor or reason.
-        2. EVIDENCE: Introduce specific named theorists, sociological research studies, or methodologies (e.g., Bourdieu's habitus, Willis's "the lads", etc.).
-        3. EXPLANATION: Deeply explain the exact connection, using professional, dense academic terminology. Don't just list buzzwords; prove *why* and *how* it answers the question.
-        4. LINK: Tie the explanation back to the question statement.
-      - Separate the two points with a double line break. Approx 200-300 words total.
+      3. [8 MARKS] Questions (e.g. "Explain two reasons..."):
+         - PEEL COUNT = EXACTLY 2 PEEL PARAGRAPHS (4 marks each).
+         - Each paragraph must cover Point, Evidence (theorist/study), Explanation, and Link back to the question.
 
-      === [10 MARKS] Questions (e.g., "Explain this view...") ===
-      - Write exactly a 2-paragraph highly structured response (around 300 words total):
-        - Paragraph 1: State the first core argument for the view. Define key terms immediately. Ground the argument in specific sociological perspectives (Feminist, Functionalist, Marxist, Postmodernist) and specific named theorists or structural agents. Provide a detailed concrete example to support it.
-        - Paragraph 2: State the second core argument for the view. Ground it in another alternative theorist/theory. Explain the sociological mechanism and provide a detailed study/example.
+      4. [10 MARKS] Questions (e.g. "Explain this view..."):
+         - PEEL COUNT = EXACTLY 2 RICH DEVELOPED PEEL PARAGRAPHS (5 marks each).
+         - Grounded deeply in primary sociological perspectives (Functionalism, Marxism, Feminism, Postmodernism) and empirical evidence.
 
-      === [6 MARKS (Counter-Argument, e.g., "Using sociological material, give one argument against...")] ===
-      - Write exactly ONE highly developed counter-argument paragraph (approx 100-150 words):
-        1. POINT: Clearly identify the opposing argument (e.g., biological determinants, or radical feminist continued patriarchy).
-        2. EVIDENCE: Cite and describe relevant sociology/theorists (e.g., Lombroso's crime traits, Walby/Oakley's continued domestic oppression).
-        3. APPLICATION: Deeply explain their arguments/evidence.
-        4. LINK: Construct an explicit and strong final analytical link that connects this counter-theory back to show *why and how* it directly undermines the original target view.
+      5. [26 MARKS] Essay Questions (Paper 1 & 2 Section B Essays e.g. "Evaluate the view..."):
+         - PEEL COUNT = 4 TO 6 PEEL PARAGRAPHS.
+         - Structure: 
+           • Continuous Introduction (0 PEEL tags): Define terms, state thesis & theoretical tension.
+           • 2-3 Supporting PEEL Paragraphs.
+           • 2-3 Evaluating/Counter PEEL Paragraphs (starting with "However...", testing validity, methodology, or competing theoretical angles).
+           • Continuous Conclusion (0 PEEL tags): Final nuanced synoptic judgement.
 
-      === [26 MARKS / 35 MARKS] Essay Questions (e.g., "Evaluate the view...") ===
-      - Write a highly academic, comprehensive, and critical essay (700-1000 words). MUST follow this modular paragraph-by-paragraph structure:
-        1. **Introduction**: Define terms, identify the key theoretical tension (e.g., Positivism vs Interpretivism, Peers vs Media/Family/Education).
-        2. **Supporting Argument 1**: Draft a rich supporting PEEL paragraph. Ground it in specific named theorists/empirical studies and primary key concepts.
-        3. **Ongoing Evaluation of Supporting Argument 1**: Immediately follow with a critical evaluation paragraph starting with "However...". Directly challenge argument 1's methodology, validity, or theoretical bias.
-        4. **Supporting Argument 2**: Add a second supportive PEEL paragraph covering a different dimension (e.g., alternative study or dynamic).
-        5. **Ongoing Evaluation of Supporting Argument 2**: Immediately evaluate it critically.
-        6. **Alternative/Counter-Perspective 1 (Opposing Side)**: Construct a powerful paragraph arguing for the alternative perspective or agent (e.g., if peers, argue why Media or Education is actually more key, using theorists like Neil Postman, Bowles & Gintis, Jock Young, etc.).
-        7. **Alternative/Counter-Perspective 2 (Opposing Side)**: Introduce secondary alternative perspective/agent with studies.
-        8. **Conclusion**: End with a nuanced synoptic synthesis. Avoid repeating what was said; instead, form a final evaluative judgement weighing both sides.
+      6. [35 MARKS] Advanced Essay Questions (Paper 3 & 4 Essays e.g. "Evaluate the view..."):
+         - PEEL COUNT = 6 TO 8 PEEL PARAGRAPHS.
+         - Structure:
+           • Continuous Introduction (0 PEEL tags): Conceptual definitions, thesis & roadmap.
+           • 6-8 PEEL Body Paragraphs systematically alternating between supporting theoretical claims and critical counter-evaluations (testing scope, measurement issues, structural vs action perspectives, historical shifts).
+           • Continuous Conclusion (0 PEEL tags): Final qualified evaluative judgement.
 
-      CRITICAL DIRECTIVES:
+      ${answerFormat === 'peel' ? `
+      FORMATTING INSTRUCTION (PEEL STUDY MODE ENABLED):
+      For all analytical body paragraphs (6m counter-arguments, 8m, 10m, 26m, and 35m questions), explicitly partition and tag each body paragraph using exact uppercase bold tags:
+      **POINT** - [Insert debating claim here]
+      **EVIDENCE** - [Insert concepts, perspective, thinker, or study here]
+      **EXPLANATION + EVALUATION** - [Show how evidence affects claim, then test scope, assumptions, or competing explanations. Weave AO3 evaluation directly here!]
+      **LINK** - [Insert direct link and qualified mini-judgement back to question wording]
+      
+      Note: For 2-mark or 4-mark short questions, DO NOT use PEEL tags, as they require 0 PEELs (only direct bulleted Point 1 / Point 2).
+      ` : `
+      FORMATTING INSTRUCTION (STANDARD PROSE MODE):
+      Write all paragraphs in natural continuous academic prose, keeping the mark-dependent structure and paragraph counts above without explicit PEEL tags.
+      `}
+
+      CRITICAL KEYWORD BOLDING & DIRECTIVES:
       - NEVER mention the syllabus code "9699" or the phrase "Cambridge syllabus" in the text.
       - Use dense, precise sociological terms from the Collins/Livesey Coursebook.
-      - Use double line breaks between paragraphs. Use markdown **bold** to highlight key theorist names and terms.
+      - NATURAL SPACING & WORD SEPARATION: Always ensure standard spaces between words, before/after parentheses, after punctuation (commas, colons, semicolons), and around bold tags (e.g. write "social identity (the external..." and "and **personal identity** or 'self-concept'..." and "theory: **structuralism versus social action**, **consensus versus conflict**, and **positivism versus interpretivism**"). Never fuse words together without spaces.
+      - BOLD ALL KEYWORDS: You MUST systematically and thoroughly BOLD (using **bold** markdown tags) all key sociological terms, core concepts, theoretical perspectives, named sociologists/thinkers (with publication years), empirical studies, research methods, and core analytical vocabulary across every paragraph (e.g. **Talcott Parsons (1951)**, **warm bath theory**, **functional fit**, **ideological state apparatus**, **Louis Althusser (1971)**, **structural differentiation**, **interpretivism**, **positivism**, **ecological validity**, **triangulation**, **Hawthorne effect**, **March of Progress**, **dual burden**, **triple shift**).
+      - BOLD SYNTAX: Always format bold keywords strictly as **keyword** with normal spaces before the opening ** and after the closing **. Never escape asterisks with backslashes.
+      - Ensure that in every paragraph, the primary sociological keywords, concepts, and names are highlighted in **bold** markdown tags so that critical exam terms and theoretical vocabulary stand out immediately.
+      - Use double line breaks between paragraphs.
       - Output MUST be a valid JSON object. Escape quotes and newlines accurately inside string properties.
       
       Also provide a brief analysis of why it scores well (AO1/AO2/AO3).`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: prompt,
         config: {
           maxOutputTokens: 8192,
@@ -2279,6 +2561,33 @@ function GenerateView() {
               <h3 className="text-2xl font-bold text-slate-900">Model Answers</h3>
             </div>
 
+            {/* Answer Generation Format Settings */}
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">
+                  <Sparkles size={16} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">Model Answer Generation Format</h4>
+                  <p className="text-[11px] text-slate-500">Choose how the AI should structure new model answers</p>
+                </div>
+              </div>
+              <div className="flex bg-slate-200/80 p-0.5 rounded-lg border border-slate-300">
+                <button
+                  onClick={() => setAnswerFormat('standard')}
+                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${answerFormat === 'standard' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Standard Prose
+                </button>
+                <button
+                  onClick={() => setAnswerFormat('peel')}
+                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${answerFormat === 'peel' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  PEEL Study Structure
+                </button>
+              </div>
+            </div>
+
             <div className="space-y-8">
               {result.sections.flatMap(s => s.questions).map((q, idx) => {
                 const answer = modelAnswers[q.id];
@@ -2312,18 +2621,7 @@ function GenerateView() {
 
                     {answer && (
                       <div className="p-8 space-y-8">
-                        <div className="markdown-body prose prose-slate max-w-none">
-                          <div className="font-serif text-lg">
-                            <Markdown remarkPlugins={[remarkGfm]}>{answer.content}</Markdown>
-                          </div>
-                        </div>
-                        
-                        <div className="bg-slate-900 rounded-2xl p-6 text-white">
-                          <h5 className="text-sm font-bold uppercase tracking-widest mb-3 text-blue-400 flex items-center gap-2">
-                            <BrainCircuit size={16} /> Examiner Analysis
-                          </h5>
-                          <p className="text-slate-300 leading-relaxed italic">{answer.analysis}</p>
-                        </div>
+                        <ModelAnswerContainer answer={answer} />
                       </div>
                     )}
 
@@ -2340,5 +2638,147 @@ function GenerateView() {
         </motion.div>
       )}
     </motion.div>
+  );
+}
+
+function PEELBlock({ type, text }: { type: 'POINT' | 'EVIDENCE' | 'EXPLANATION' | 'LINK' | 'TEXT', text: string }) {
+  const styles = {
+    POINT: {
+      bg: 'bg-blue-50/40 border-blue-200 text-blue-900',
+      labelBg: 'bg-blue-600 text-white',
+      border: 'border-l-4 border-blue-500',
+      name: 'POINT'
+    },
+    EVIDENCE: {
+      bg: 'bg-purple-50/40 border-purple-200 text-purple-900',
+      labelBg: 'bg-purple-600 text-white',
+      border: 'border-l-4 border-purple-500',
+      name: 'EVIDENCE'
+    },
+    EXPLANATION: {
+      bg: 'bg-amber-50/40 border-amber-200 text-amber-900',
+      labelBg: 'bg-amber-500 text-white',
+      border: 'border-l-4 border-amber-500',
+      name: 'EXPLANATION + EVALUATION'
+    },
+    LINK: {
+      bg: 'bg-emerald-50/40 border-emerald-200 text-emerald-900',
+      labelBg: 'bg-emerald-600 text-white',
+      border: 'border-l-4 border-emerald-500',
+      name: 'LINK'
+    },
+    TEXT: {
+      bg: 'bg-slate-50 border-slate-200 text-slate-900',
+      labelBg: 'bg-slate-500 text-white',
+      border: 'border-l-4 border-slate-400',
+      name: 'DETAIL'
+    }
+  };
+
+  const s = styles[type] || styles.TEXT;
+
+  return (
+    <div className={`p-4 rounded-xl border ${s.bg} ${s.border} space-y-2 shadow-sm`}>
+      <div className="flex items-center gap-2">
+        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${s.labelBg}`}>
+          {s.name}
+        </span>
+      </div>
+      <div className="text-sm font-medium leading-relaxed text-slate-800 markdown-body prose max-w-none">
+        <Markdown remarkPlugins={[remarkGfm]}>{sanitizeSociologyMarkdown(text)}</Markdown>
+      </div>
+    </div>
+  );
+}
+
+function ModelAnswerContainer({ answer }: { answer: ModelAnswer }) {
+  const [displayMode, setDisplayMode] = useState<'peel' | 'prose'>('peel');
+  const hasPEEL = /POINT/i.test(answer.content) && /EVIDENCE/i.test(answer.content);
+  const parsedParagraphs = hasPEEL ? parsePEELParagraphs(answer.content) : [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-100 pb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
+            {hasPEEL ? 'PEEL Study Guide Answer' : 'Official Model Answer'}
+          </span>
+          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+            {answer.wordCount} Words
+          </span>
+        </div>
+        
+        {hasPEEL && (
+          <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+            <button
+              onClick={() => setDisplayMode('peel')}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                displayMode === 'peel' 
+                  ? 'bg-white text-indigo-600 shadow-sm' 
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Zap size={10} />
+              PEEL Study Mode
+            </button>
+            <button
+              onClick={() => setDisplayMode('prose')}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                displayMode === 'prose' 
+                  ? 'bg-white text-indigo-600 shadow-sm' 
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <FileText size={10} />
+              Continuous Prose
+            </button>
+          </div>
+        )}
+      </div>
+
+      {hasPEEL && displayMode === 'peel' ? (
+        <div className="space-y-6">
+          {parsedParagraphs.map((para, idx) => {
+            if (para.isPEEL && para.blocks) {
+              return (
+                <div key={idx} className="space-y-4 bg-slate-50/50 p-5 rounded-2xl border border-slate-200">
+                  {para.blocks.map((block, bIdx) => (
+                    <PEELBlock key={bIdx} type={block.type as any} text={block.text} />
+                  ))}
+                </div>
+              );
+            } else {
+              const isIntro = idx === 0;
+              return (
+                <div key={idx} className="bg-indigo-50/30 p-5 rounded-2xl border border-indigo-100/50">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 block mb-2">
+                    {isIntro ? 'Introduction / Thesis & Route' : 'Conclusion / Final Judgement'}
+                  </span>
+                  <div className="text-sm font-medium leading-relaxed text-slate-800 markdown-body prose max-w-none">
+                    <Markdown remarkPlugins={[remarkGfm]}>{sanitizeSociologyMarkdown(para.text || '')}</Markdown>
+                  </div>
+                </div>
+              );
+            }
+          })}
+        </div>
+      ) : (
+        <div className="text-sm font-medium leading-relaxed text-slate-800 markdown-body prose max-w-none">
+          <Markdown remarkPlugins={[remarkGfm]}>
+            {hasPEEL ? cleanPEELForProse(answer.content) : sanitizeSociologyMarkdown(answer.content)}
+          </Markdown>
+        </div>
+      )}
+
+      {answer.analysis && (
+        <div className="bg-slate-900 rounded-2xl p-5 text-white text-xs border border-slate-800 shadow-md mt-4">
+          <p className="font-bold text-indigo-400 mb-2 uppercase tracking-widest flex items-center gap-1.5">
+            <Award size={14} />
+            Examiner Grading Analysis
+          </p>
+          <p className="opacity-80 leading-relaxed text-slate-300 font-medium">{answer.analysis}</p>
+        </div>
+      )}
+    </div>
   );
 }
