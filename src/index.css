@@ -35,13 +35,21 @@ b {
   color: #0f172a !important;
 }
 
-.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4,
-.prose h1, .prose h2, .prose h3, .prose h4 {
-  font-weight: 700;
-  color: #0f172a;
-  margin-top: 1.5rem;
-  margin-bottom: 0.75rem;
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6,
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.6rem !important;
+  line-height: 1.35 !important;
 }
+
+.markdown-body h1, .prose h1 { font-size: 1.5rem !important; }
+.markdown-body h2, .prose h2 { font-size: 1.3rem !important; }
+.markdown-body h3, .prose h3 { font-size: 1.15rem !important; }
+.markdown-body h4, .prose h4 { font-size: 1.05rem !important; }
+.markdown-body h5, .prose h5 { font-size: 0.95rem !important; }
+.markdown-body h6, .prose h6 { font-size: 0.875rem !important; }
 
 /* Lists & Clean Bullet Points with Strict Horizontal & Vertical Alignment */
 .markdown-body ul,

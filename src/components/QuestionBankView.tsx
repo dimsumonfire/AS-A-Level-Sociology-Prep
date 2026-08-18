@@ -25,6 +25,12 @@ import {
 import { questionBankData, BankQuestion } from '../dataQuestionBank';
 import { searchSociologyRAGByQuestion } from '../sociologyRAG';
 import { sanitizeSociologyMarkdown, cleanPEELForProse, parsePEELParagraphs } from '../markdownUtils';
+import AIStudyDisclaimer from './AIStudyDisclaimer';
+import SourcesPanel from './SourcesPanel';
+import PEELClarityGuide from './PEELClarityGuide';
+import { validateCitations } from '../utils/citationValidator';
+import { ACADEMIC_EVIDENCE_LIBRARY } from '../evidenceData';
+import { CitationItem, UnsupportedClaimItem, AcademicEvidence } from '../types';
 
 function safeJsonParse(text: string) {
   try {
@@ -52,6 +58,8 @@ interface ModelAnswerState {
   content: string;
   analysis: string;
   wordCount: number;
+  citations?: Array<CitationItem & { evidence?: AcademicEvidence }>;
+  unsupportedClaims?: UnsupportedClaimItem[];
 }
 
 export default function QuestionBankView() {
@@ -132,14 +140,14 @@ export default function QuestionBankView() {
         }
       });
 
-      const prompt = `You are an elite Chief Cambridge Sociology Examiner specializing in the Cambridge International AS & A Level Sociology (9699) Syllabus.
+      const prompt = `You are an expert Cambridge Sociology educator and assessment specialist for Cambridge International AS & A Level Sociology (9699).
 Synthesize deep academic knowledge from the "Collins Cambridge International AS & A Level Sociology" (Haralambos & Holborn) and "Cambridge University Press Coursebook" (Livesey & Blundell).
 
 ${ragContext ? `TEXTBOOK REPOSITORY CONTEXT:
 ${ragContext}
 ` : ""}
 
-Generate a guaranteed full-marks A* Model Answer for the following question from ${q.paperTitle}:
+Generate an illustrative high-band model response for the following question from ${q.paperTitle}:
 
 Question Number: ${q.questionNumber} [Total: ${q.marks} Marks]
 Question: "${q.questionText}"
@@ -169,11 +177,12 @@ MARK TARIFF & STRUCTURAL RULES:
 
 ${answerFormat === 'peel' ? `
 FORMATTING DIRECTIVE (PEEL MODE ENABLED):
-For all analytical body paragraphs (in 6m, 8m, 10m, and 26m questions), explicitly tag each section:
-**POINT** - [Insert debating claim here]
-**EVIDENCE** - [Insert concepts, perspective, thinker, or study here]
-**EXPLANATION + EVALUATION** - [Explain theoretical mechanism and weave AO3 evaluation directly here]
-**LINK** - [Explicit link and mini-judgement back to question wording]
+For all analytical body paragraphs (in 6m, 8m, 10m, and 26m questions), explicitly partition each paragraph using these distinct bold tags:
+**POINT** - [Insert debating claim / thesis directly addressing question prompt (AO1)]
+**EVIDENCE** - [Insert empirical facts only: named sociologists/theorists with publication dates, landmark research studies, methods/samples, or statistical datasets]
+**EXPLANATION** - [Explain theoretical mechanisms, concepts, and sociological processes answering HOW and WHY the evidence proves the point]
+**EVALUATION** - [Weave AO3 critique: methodological limitations, temporal shifts, or rival theoretical perspectives (for essay questions)]
+**LINK** - [Explicit link and mini-judgement tying back directly to the question wording]
 ` : `
 FORMATTING DIRECTIVE (STANDARD PROSE MODE):
 Write in flowing, sophisticated continuous academic prose with natural paragraph transitions without uppercase PEEL tags.
@@ -210,13 +219,17 @@ CRITICAL KEYWORD BOLDING & EXAM RULES:
         throw new Error("The AI returned an invalid response. Please try again.");
       }
 
+      const validation = validateCitations(data.content, ACADEMIC_EVIDENCE_LIBRARY);
+
       setModelAnswers(prev => ({
         ...prev,
         [q.id]: {
           questionId: q.id,
           content: data.content,
           analysis: data.analysis || "Demonstrates comprehensive theoretical understanding (AO1), precise empirical application (AO2), and balanced evaluative judgement (AO3).",
-          wordCount: data.wordCount || data.content.split(/\s+/).length
+          wordCount: data.wordCount || data.content.split(/\s+/).length,
+          citations: validation.citations,
+          unsupportedClaims: validation.unsupportedClaims
         }
       }));
 
@@ -259,7 +272,7 @@ CRITICAL KEYWORD BOLDING & EXAM RULES:
               <h2 className="text-3xl font-bold text-slate-900">Cambridge Question Bank</h2>
             </div>
             <p className="text-slate-600 text-base">
-              Complete official syllabus question archive for 9699 AS Level (2026–2028). Filter by paper, question type, and topic with instant A* model answers.
+              Cambridge 9699-aligned practice question bank for AS Level (2026–2028). Filter by paper, question type, and topic with illustrative high-band model responses.
             </p>
           </div>
 
@@ -329,6 +342,9 @@ CRITICAL KEYWORD BOLDING & EXAM RULES:
           </div>
         </div>
       </header>
+
+      {/* Interactive Evidence vs. Explanation Clarity Guide */}
+      <PEELClarityGuide defaultOpen={false} />
 
       {/* Control Panel: Filters and Search */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -578,7 +594,7 @@ CRITICAL KEYWORD BOLDING & EXAM RULES:
                           </span>
                           <div>
                             <h4 className="text-sm font-bold text-indigo-950">
-                              Cambridge Model Answer (A* Exemplar)
+                              AI-Generated High-Band Example
                             </h4>
                             <p className="text-xs text-indigo-700">
                               Synthesized from Collins & CUP Coursebooks &bull; {modelAnswers[q.id].wordCount} words
@@ -632,18 +648,24 @@ CRITICAL KEYWORD BOLDING & EXAM RULES:
                                     <div key={pIdx} className="space-y-3 bg-white p-5 rounded-xl border border-indigo-100 shadow-sm">
                                       {para.blocks.map((block, bIdx) => {
                                         const styles = {
-                                          POINT: { bg: 'bg-blue-50/50 border-l-4 border-blue-500 text-blue-900', label: 'POINT', badge: 'bg-blue-600 text-white' },
-                                          EVIDENCE: { bg: 'bg-purple-50/50 border-l-4 border-purple-500 text-purple-900', label: 'EVIDENCE', badge: 'bg-purple-600 text-white' },
-                                          EXPLANATION: { bg: 'bg-amber-50/50 border-l-4 border-amber-500 text-amber-900', label: 'EXPLANATION + EVALUATION', badge: 'bg-amber-500 text-white' },
-                                          LINK: { bg: 'bg-emerald-50/50 border-l-4 border-emerald-500 text-emerald-900', label: 'LINK', badge: 'bg-emerald-600 text-white' },
-                                          TEXT: { bg: 'bg-slate-50 border-l-4 border-slate-400 text-slate-900', label: 'DETAIL', badge: 'bg-slate-500 text-white' }
-                                        }[block.type] || { bg: 'bg-slate-50 border-l-4 border-slate-400 text-slate-900', label: 'DETAIL', badge: 'bg-slate-500 text-white' };
+                                          POINT: { bg: 'bg-blue-50/60 border-l-4 border-blue-500 text-blue-950', label: 'POINT (AO1 Claim)', desc: 'Direct debating claim', badge: 'bg-blue-600 text-white' },
+                                          EVIDENCE: { bg: 'bg-purple-50/60 border-l-4 border-purple-500 text-purple-950', label: 'EVIDENCE (Empirical & Theorists)', desc: 'Empirical studies, named sociologists with dates, facts & data', badge: 'bg-purple-600 text-white' },
+                                          EXPLANATION: { bg: 'bg-amber-50/60 border-l-4 border-amber-500 text-amber-950', label: 'EXPLANATION (Theoretical Mechanism)', desc: 'How & why it works: conceptual mechanism', badge: 'bg-amber-600 text-white' },
+                                          EVALUATION: { bg: 'bg-rose-50/60 border-l-4 border-rose-500 text-rose-950', label: 'EVALUATION (AO3 Critical Appraisal)', desc: 'Methodological limitations & rival paradigms', badge: 'bg-rose-600 text-white' },
+                                          LINK: { bg: 'bg-emerald-50/60 border-l-4 border-emerald-500 text-emerald-950', label: 'LINK (Synthesis)', desc: 'Ties back directly to question wording', badge: 'bg-emerald-600 text-white' },
+                                          TEXT: { bg: 'bg-slate-50 border-l-4 border-slate-400 text-slate-900', label: 'DETAIL', desc: 'Contextual analysis', badge: 'bg-slate-500 text-white' }
+                                        }[block.type] || { bg: 'bg-slate-50 border-l-4 border-slate-400 text-slate-900', label: 'DETAIL', desc: 'Contextual analysis', badge: 'bg-slate-500 text-white' };
 
                                         return (
                                           <div key={bIdx} className={`p-4 rounded-xl border border-slate-200 ${styles.bg} space-y-2`}>
-                                            <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block ${styles.badge}`}>
-                                              {styles.label}
-                                            </span>
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                              <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block ${styles.badge}`}>
+                                                {styles.label}
+                                              </span>
+                                              <span className="text-[10px] text-slate-500 font-medium italic">
+                                                {styles.desc}
+                                              </span>
+                                            </div>
                                             <div className="text-sm font-medium leading-relaxed text-slate-800 markdown-body prose max-w-none">
                                               <Markdown remarkPlugins={[remarkGfm]}>{sanitizeSociologyMarkdown(block.text)}</Markdown>
                                             </div>
@@ -673,6 +695,15 @@ CRITICAL KEYWORD BOLDING & EXAM RULES:
                           </div>
                         );
                       })()}
+
+                      <AIStudyDisclaimer className="mt-4" />
+
+                      <SourcesPanel
+                        citations={modelAnswers[q.id].citations}
+                        unsupportedClaims={modelAnswers[q.id].unsupportedClaims}
+                        hasUnverifiedWarning={(modelAnswers[q.id].unsupportedClaims?.length || 0) > 0}
+                        className="mt-4"
+                      />
                     </motion.div>
                   )}
                 </AnimatePresence>

@@ -26,10 +26,16 @@ import {
   FileText
 } from 'lucide-react';
 import { searchSociologyRAGByQuestion, getSociologyRAGContent, TextbookRAGEntry } from '../sociologyRAG';
-import { sanitizeSociologyMarkdown } from '../markdownUtils';
+import { sanitizeSociologyMarkdown, parsePEELParagraphs, cleanPEELForProse } from '../markdownUtils';
 import { exportElementToPdf } from '../pdfUtils';
+import AIStudyDisclaimer from './AIStudyDisclaimer';
+import SourcesPanel from './SourcesPanel';
+import PEELClarityGuide from './PEELClarityGuide';
+import { validateCitations } from '../utils/citationValidator';
+import { ACADEMIC_EVIDENCE_LIBRARY } from '../evidenceData';
+import { CitationItem, UnsupportedClaimItem } from '../types';
 
-export type MarkType = 4 | 8 | 10 | 26;
+export type MarkType = 4 | 6 | 8 | 10 | 16 | 26 | 35;
 
 interface PresetQuestion {
   questionText: string;
@@ -48,11 +54,18 @@ const PRESET_QUESTIONS: PresetQuestion[] = [
     description: '4-mark AO1 short answer detailing family and early language/values transmission.'
   },
   {
+    marks: 6,
+    paper: 'Paper 1',
+    topic: 'Methods of Research',
+    questionText: 'Explain two limitations of using field experiments in sociological research.',
+    description: '6-mark Q2b methodology question using the 3-step rubric (identify, explain why method has it, explain consequence).'
+  },
+  {
     marks: 8,
     paper: 'Paper 1',
     topic: 'Methods of Research',
-    questionText: 'Explain two reasons why sociologists might choose to use semi-structured interviews instead of questionnaires.',
-    description: '8-mark AO1+AO2 response comparing interpretivist qualitative validity with positivist instruments.'
+    questionText: 'Explain two reasons why positivists favour the use of closed-ended questionnaires.',
+    description: '8-mark AO1+AO2 response detailing replication, objectivity, and quantifiable operationalisation.'
   },
   {
     marks: 10,
@@ -62,6 +75,13 @@ const PRESET_QUESTIONS: PresetQuestion[] = [
     description: '10-mark AO1+AO2 analysis of family diversity (Rapoport & Rapoport, Chester, Stacey).'
   },
   {
+    marks: 16,
+    paper: 'Paper 2',
+    topic: 'The Family',
+    questionText: '(a) Explain two arguments supporting the view that the extent of family diversity has been exaggerated [10]. (b) Explain one argument against this view [6].',
+    description: '10+6 Marks (16m total): Complete Cambridge Section A Question 3 paired set (Support 10m + Counter 6m).'
+  },
+  {
     marks: 26,
     paper: 'Paper 1',
     topic: 'Socialisation & Identity',
@@ -69,23 +89,17 @@ const PRESET_QUESTIONS: PresetQuestion[] = [
     description: '26-mark Section B essay debating Postmodern fragmentation versus Marxist structural inequality.'
   },
   {
-    marks: 26,
-    paper: 'Paper 2',
-    topic: 'Religion',
-    questionText: 'Evaluate the view that religious institutions continue to function as a conservative force in modern society.',
-    description: '26-mark Section B essay debating Functionalism/Marxism (conservative force) vs. Neo-Marxism/Weber (social change).'
-  },
-  {
-    marks: 4,
-    paper: 'Paper 2',
-    topic: 'The Media',
-    questionText: 'Describe two ways in which the media construct moral panics.',
-    description: '4-mark AO1 short answer covering deviance amplification and folk devils (Stan Cohen).'
+    marks: 35,
+    paper: 'Paper 4',
+    topic: 'Globalisation & Religion',
+    questionText: 'Evaluate the view that religion is no longer socially significant in modern industrial societies.',
+    description: '35-mark Paper 4 essay debating secularisation (Bruce, Weber) vs de-secularisation and believing without belonging (Davie, Berger).'
   }
 ];
 
 const MARK_CONFIGS: Record<MarkType, {
   label: string;
+  badgeLabel: string;
   timeEstimate: string;
   badgeColor: string;
   description: string;
@@ -94,14 +108,25 @@ const MARK_CONFIGS: Record<MarkType, {
 }> = {
   4: {
     label: '4 Marks (Short Answer)',
+    badgeLabel: '4 Marks',
     timeEstimate: '5-7 mins',
     badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
     description: 'Describe two points/features/reasons. Strictly AO1 Knowledge & Understanding without evaluation.',
     structureNotes: '2 concise paragraphs with distinct sociological terms and empirical examples.',
     aoFocus: 'AO1 (4 Marks)'
   },
+  6: {
+    label: '6 Marks (Limitations / Counter)',
+    badgeLabel: '6 Marks',
+    timeEstimate: '8-10 mins',
+    badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',
+    description: 'Explain two limitations/strengths (Q2b) OR one unpacked counterargument (Q3b).',
+    structureNotes: '3-step rubric: Identify + Why method/theory has it + Why it is a limitation/strength.',
+    aoFocus: 'AO1 (3 Marks) + AO2 (3 Marks)'
+  },
   8: {
     label: '8 Marks (Structured Explanation)',
+    badgeLabel: '8 Marks',
     timeEstimate: '10-12 mins',
     badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     description: 'Explain two factors/reasons with depth. AO1 Knowledge + AO2 Application using sociological concepts and named thinkers.',
@@ -110,19 +135,39 @@ const MARK_CONFIGS: Record<MarkType, {
   },
   10: {
     label: '10 Marks (Deep Analytical Response)',
+    badgeLabel: '10 Marks',
     timeEstimate: '15-18 mins',
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
     description: 'Explain two arguments supporting a major theoretical perspective with empirical studies and methodological depth.',
     structureNotes: '2 extensive 5-mark PEEL paragraphs citing landmark studies and structural/action mechanisms.',
     aoFocus: 'AO1 (4 Marks) + AO2 (6 Marks)'
   },
+  16: {
+    label: '10+6 Marks (Paired Set: Q3a + Q3b)',
+    badgeLabel: '10+6 Marks',
+    timeEstimate: '22-25 mins',
+    badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',
+    description: 'Full Section A Q3 Question Pair: 3(a) Explain two supporting arguments [10] + 3(b) Explain one counterargument [6].',
+    structureNotes: 'Part (a): 2 extensive 5m PEELs in support. Part (b): 1 fully unpacked 6m counter-perspective.',
+    aoFocus: 'Part (a) [10m] + Part (b) [6m] = 16 Marks'
+  },
   26: {
     label: '26 Marks (Section B Essay)',
+    badgeLabel: '26 Marks',
     timeEstimate: '40-45 mins',
     badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
     description: 'Full evaluative essay debating theoretical perspectives, empirical evidence, and critical evaluation.',
     structureNotes: 'Introduction + 2-3 Supporting PEELs + 2-3 Counter Evaluative PEELs ("However...") + Nuanced Conclusion.',
     aoFocus: 'AO1 (8 Marks) + AO2 (8 Marks) + AO3 (10 Marks)'
+  },
+  35: {
+    label: '35 Marks (Paper 4 Synoptic Essay)',
+    badgeLabel: '35 Marks',
+    timeEstimate: '50-60 mins',
+    badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    description: 'Comprehensive A Level Paper 4 essay covering Globalisation, Media, Religion, or Inequality with multi-paradigm evaluation.',
+    structureNotes: 'In-depth Introduction + 3-4 Detailed Supporting PEELs + 3-4 Evaluative Counter PEELs + Non-moralising Conclusion.',
+    aoFocus: 'AO1 (9 Marks) + AO2 (11 Marks) + AO3 (15 Marks)'
   }
 };
 
@@ -139,6 +184,8 @@ interface GeneratedAnswer {
   keyTermsUsed: string[];
   wordCount: number;
   ragContextUsed?: string;
+  citations?: Array<CitationItem & { evidence?: import('../types').AcademicEvidence }>;
+  unsupportedClaims?: UnsupportedClaimItem[];
 }
 
 function safeJsonParse(text: string) {
@@ -167,6 +214,7 @@ export default function AskQuestionView() {
   const [selectedMarks, setSelectedMarks] = useState<MarkType>(26);
   const [selectedPaper, setSelectedPaper] = useState<string>('Auto');
   const [answerFormat, setAnswerFormat] = useState<'standard' | 'peel'>('standard');
+  const [displayMode, setDisplayMode] = useState<'peel' | 'prose'>('peel');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedAnswer, setGeneratedAnswer] = useState<GeneratedAnswer | null>(null);
@@ -212,12 +260,12 @@ export default function AskQuestionView() {
       const retrievedContext = searchSociologyRAGByQuestion(targetPaper, questionInput);
 
       // 2. Build High-Precision Prompt aligned with Cambridge 9699 Mark Schemes
-      const prompt = `You are the Chief Examiner for Cambridge International AS & A Level Sociology (9699).
+      const prompt = `You are an expert Cambridge Sociology educator and assessment specialist for Cambridge International AS & A Level Sociology (9699).
 You have authoritative mastery of both:
 1. "Collins Cambridge International AS & A Level Sociology" (Haralambos & Holborn et al.)
 2. "Cambridge University Press Coursebook" (Livesey & Blundell)
 
-Provide a guaranteed full-marks A* Model Answer for the following Cambridge Sociology question:
+Provide an illustrative high-band model response aligned with Cambridge 9699 assessment criteria for the following Cambridge Sociology question:
 
 QUESTION: "${questionInput.trim()}"
 MARK TARIFF: [${selectedMarks} MARKS]
@@ -227,24 +275,60 @@ ${retrievedContext ? `TEXTBOOK REPOSITORY CONTEXT:
 ${retrievedContext}
 ` : ''}
 
+CRITICAL DISTINCTION: EVIDENCE vs. EXPLANATION IN PEEL/PEEEL STRUCTURE:
+You must strictly separate Empirical Evidence from Theoretical Explanation:
+- **POINT**: The central sociological argument / thesis assertion directly answering the question prompt (AO1).
+- **EVIDENCE**: EMPIRICAL MATERIAL & CONCRETE FACTS ONLY. Cite specific named sociologists/theorists with publication years (e.g. Talcott Parsons (1951), Sue Sharpe (1976, 1994), Paul Willis (1977), Ann Oakley (1974)), landmark empirical research studies, sample methodologies, statistical datasets (e.g. UK ONS divorce rates, DfE attainment gaps), or concrete historical/contemporary case studies. This answers: "WHO found it? WHAT empirical study or dataset proves it?" DO NOT put abstract theoretical reasoning here.
+- **EXPLANATION**: THEORETICAL MECHANISM & SOCIOLOGICAL ANALYSIS ONLY. Unpack the HOW and WHY. Explain the sociological concepts, structural forces (e.g. capitalism, patriarchy, functional fit), or interactionist processes (e.g. labelling, looking-glass self, self-fulfilling prophecy). Connect the evidence directly back to why it proves the point. This answers: "HOW and WHY does this mechanism work theoretically?"
+- **EVALUATION** (for essays AO3): CRITICAL APPRAISAL ONLY. Methodological weaknesses (sample size, validity, interviewer bias, temporal relevance) or rival theoretical paradigms (Marxism vs Functionalism, Feminism, Postmodernism).
+- **LINK**: Direct synthesis tying the analytical argument back to the specific words of the exam question prompt.
+
 MARK TARIFF STRUCTURAL DIRECTIVES:
 ${selectedMarks === 4 ? `
-[4 MARKS SHORT ANSWER]:
+[4 MARKS SHORT ANSWER (Q1)]:
 - DO NOT USE PEEL OR EVALUATION.
 - Output exactly TWO distinct, clear paragraphs:
-  **Point 1: [Sociological Feature/Reason/Concept]** - [Clear explanation with named theorist, study, or sociological mechanism].
-  **Point 2: [Sociological Feature/Reason/Concept]** - [Clear explanation with named theorist, study, or sociological mechanism].
+  **Point 1: [Sociological Feature/Reason/Concept]** - [Clear identification + description in specific question context].
+  **Point 2: [Sociological Feature/Reason/Concept]** - [Clear identification + description in specific question context].
+` : selectedMarks === 6 ? `
+[6 MARKS METHODOLOGICAL / THEORETICAL LIMITATIONS (Q2b) OR SINGLE COUNTERARGUMENT (Q3b)]:
+- If addressing a Q2b (Limitations/Strengths): Provide exactly TWO points following the Cambridge 3-step rubric:
+  * Step 1: Identify the limitation/strength.
+  * Step 2: Explain what it is about the method/theory that creates this feature.
+  * Step 3: Explain the consequence (impact on validity, reliability, ethics, or theoretical scope).
+- If addressing a Q3b (Counterargument): Provide ONE deeply unpacked, sophisticated counter-perspective with named theorists and empirical evidence.
 ` : selectedMarks === 8 ? `
-[8 MARKS STRUCTURED QUESTION]:
+[8 MARKS STRUCTURED QUESTION (Q2a)]:
 - Provide exactly TWO richly developed 4-mark PEEL paragraphs explaining the two requested factors/reasons.
-- Integrate named sociologists (with publication years), precise concepts, and theoretical mechanisms.
+- For each point: (1) Identify reason, (2) Cite empirical evidence / theorist with year, (3) Explain theoretical mechanism (how & why), (4) Apply directly to question prompt.
 ` : selectedMarks === 10 ? `
-[10 MARKS DEEP ANALYTICAL QUESTION]:
+[10 MARKS DEEP ANALYTICAL QUESTION (Q3a)]:
 - Provide exactly TWO extensive 5-mark PEEL paragraphs thoroughly exploring the requested theoretical perspective or empirical debate.
 - Cite landmark studies, empirical methodologies (sample size, qualitative/quantitative methods), and theoretical mechanisms.
+` : selectedMarks === 16 ? `
+[10+6 MARKS COMPLETE SECTION A QUESTION 3 PAIR (16 MARKS TOTAL)]:
+Structure the model answer with clear subheadings for both parts:
+### Question 3(a) [10 Marks]
+Explain two arguments supporting the view in the prompt:
+- Provide TWO fully developed 5-mark PEEL paragraphs.
+- Cite landmark theorists (with dates), empirical evidence, and theoretical mechanisms.
+- Focus strictly on answering the support side without evaluation.
+
+### Question 3(b) [6 Marks]
+Explain one argument against the view in the prompt:
+- Provide ONE fully unpacked, sophisticated 6-mark counterargument paragraph.
+- Deploy an alternative theoretical perspective or empirical critique challenging 3(a).
+- Explicitly explain why this counter-factor challenges or outweighs the supporting argument.
+` : selectedMarks === 35 ? `
+[35 MARKS PAPER 4 SYNOPTIC ESSAY]:
+- Full continuous A* Masterclass essay for Cambridge Paper 4 (AO1=9, AO2=11, AO3=15):
+  1. **Introduction**: Conceptual precision, theoretical mapping across Globalisation, Media, Religion, or Inequality, and clear framing.
+  2. **3-4 Detailed Supporting PEEL Paragraphs**: In-depth theoretical unpacking (e.g. Dependency theory, Frankfurt School, Cultural imperialism, Secularisation), empirical studies, and institutional dynamics.
+  3. **3-4 Evaluating Counter PEEL Paragraphs**: Embedded evaluation ("Conversely...", "However..."), contrasting paradigms (e.g. Modernisation, Neo-Marxism, Postmodern fluidity, Fundamentalist revival), and methodological critiques.
+  4. **Nuanced Conclusion**: Non-moralising, evaluative assessment weighing the most persuasive sociological explanations.
 ` : `
 [26 MARKS SECTION B ESSAY]:
-- Full continuous A* Masterclass essay containing:
+- Full continuous A* Masterclass essay containing (AO1=8, AO2=8, AO3=10):
   1. **Introduction**: Precise definition of core concepts, establishing the central theoretical dialectic (e.g. Structuralism vs Interactionism, Consensus vs Conflict, Modernity vs Postmodernity).
   2. **2-3 Supporting PEEL Paragraphs**: Thoroughly explaining key arguments, named theorists with years, and empirical research supporting the prompt.
   3. **2-3 Evaluating/Counter PEEL Paragraphs**: Starting with evaluative signposts ("However, ...", "Conversely, ..."), deploying alternative theoretical paradigms, methodological critiques, and contemporary research.
@@ -253,11 +337,12 @@ ${selectedMarks === 4 ? `
 
 ${answerFormat === 'peel' ? `
 FORMATTING DIRECTIVE (STRUCTURED PEEL MODE):
-For analytical paragraphs (8m, 10m, 26m), explicitly label the sections:
+For analytical paragraphs (8m, 10m, 26m, 35m), explicitly partition each paragraph using these distinct bold tags:
 **POINT** - [Insert debating claim here]
-**EVIDENCE** - [Insert concepts, perspective, thinker, or study here]
-**EXPLANATION + EVALUATION** - [Explain theoretical mechanism and weave AO3 evaluation directly here]
-**LINK** - [Explicit link and mini-judgement back to question wording]
+**EVIDENCE** - [Insert empirical facts: named theorist(s) with publication year, landmark empirical study, sample methods, or statistics]
+**EXPLANATION** - [Explain the theoretical mechanism, sociological concepts, and analytical logic of HOW and WHY the evidence proves the claim]
+**EVALUATION** - [Weave AO3 critique: methodological limitations, temporal validity, or rival theoretical paradigm (for essay questions)]
+**LINK** - [Explicit link and mini-judgement tying back directly to the question wording]
 ` : `
 FORMATTING DIRECTIVE (STANDARD PROSE MODE):
 Write in continuous, flowing, highly sophisticated academic prose with natural paragraph transitions without uppercase PEEL labels.
@@ -279,10 +364,10 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
             type: Type.OBJECT,
             properties: {
               content: { type: Type.STRING, description: 'The complete model answer in markdown format' },
-              analysis: { type: Type.STRING, description: 'Overall Chief Examiner commentary on why this answer achieves top band marks' },
-              ao1Breakdown: { type: Type.STRING, description: 'AO1 Knowledge & Understanding specific examiner notes' },
-              ao2Breakdown: { type: Type.STRING, description: 'AO2 Application & Evidence specific examiner notes' },
-              ao3Breakdown: { type: Type.STRING, description: 'AO3 Analysis & Evaluation specific examiner notes' },
+              analysis: { type: Type.STRING, description: 'Overall assessment commentary informed by published examiner guidance on why this answer reflects high-band performance' },
+              ao1Breakdown: { type: Type.STRING, description: 'AO1 Knowledge & Understanding specific assessment notes' },
+              ao2Breakdown: { type: Type.STRING, description: 'AO2 Application & Evidence specific assessment notes' },
+              ao3Breakdown: { type: Type.STRING, description: 'AO3 Analysis & Evaluation specific assessment notes' },
               keyTheoristsUsed: { 
                 type: Type.ARRAY, 
                 items: { type: Type.STRING },
@@ -305,6 +390,8 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
         throw new Error('The AI returned an invalid response. Please try again.');
       }
 
+      const validation = validateCitations(data.content, ACADEMIC_EVIDENCE_LIBRARY);
+
       setGeneratedAnswer({
         questionText: questionInput.trim(),
         marks: selectedMarks,
@@ -317,7 +404,9 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
         keyTheoristsUsed: data.keyTheoristsUsed || [],
         keyTermsUsed: data.keyTermsUsed || [],
         wordCount: data.wordCount || data.content.split(/\s+/).length,
-        ragContextUsed: retrievedContext
+        ragContextUsed: retrievedContext,
+        citations: validation.citations,
+        unsupportedClaims: validation.unsupportedClaims
       });
 
     } catch (err: any) {
@@ -370,11 +459,14 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
           <div>
             <h2 className="text-3xl font-bold text-slate-900">Ask a Question</h2>
             <p className="text-slate-600 text-sm">
-              Input any custom essay or exam question. Select the mark tariff (4, 8, 10, or 26 marks) to generate an A* Cambridge model answer powered by the Collins & Cambridge textbook database.
+              Input any custom essay or exam question. Select the mark tariff (4, 6, 8, 10, 10+6, 26, or 35 marks) to generate an illustrative high-band model response aligned with Cambridge 9699 assessment criteria.
             </p>
           </div>
         </div>
       </header>
+
+      {/* Interactive Evidence vs. Explanation Clarity Guide */}
+      <PEELClarityGuide defaultOpen={false} />
 
       {/* Preset Starters Banner */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5">
@@ -422,13 +514,13 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
           />
         </div>
 
-        {/* Mark Tariff Selector (4, 8, 10, 26 marks) */}
+        {/* Mark Tariff Selector (4, 6, 8, 10, 10+6, 26, 35 marks) */}
         <div>
           <label className="block text-sm font-bold text-slate-900 mb-2.5">
             Select Question Type & Mark Tariff <span className="text-red-500">*</span>
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {([4, 8, 10, 26] as MarkType[]).map((marks) => {
+            {([4, 6, 8, 10, 16, 26, 35] as MarkType[]).map((marks) => {
               const markConf = MARK_CONFIGS[marks];
               const isSelected = selectedMarks === marks;
               return (
@@ -444,7 +536,7 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-base font-extrabold text-slate-900">
-                      {marks} Marks
+                      {markConf.badgeLabel}
                     </span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${markConf.badgeColor}`}>
                       {markConf.timeEstimate}
@@ -544,7 +636,7 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
             ) : (
               <>
                 <Sparkles size={16} />
-                <span>Generate A* Model Answer ({selectedMarks}m)</span>
+                <span>Generate A* Model Answer ({MARK_CONFIGS[selectedMarks].badgeLabel})</span>
               </>
             )}
           </button>
@@ -564,8 +656,8 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold px-3 py-1 rounded-full border ${MARK_CONFIGS[generatedAnswer.marks].badgeColor}`}>
-                    {generatedAnswer.marks} Marks
+                  <span className={`text-xs font-bold px-3 py-1 rounded-full border ${MARK_CONFIGS[generatedAnswer.marks]?.badgeColor}`}>
+                    {MARK_CONFIGS[generatedAnswer.marks]?.badgeLabel || `${generatedAnswer.marks} Marks`}
                   </span>
                   <span className="text-xs font-semibold text-slate-600">
                     {generatedAnswer.paper}
@@ -630,18 +722,152 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
               </div>
             )}
 
-            {/* Formatted Markdown Model Answer */}
-            <div className="markdown-body prose prose-slate max-w-none pt-2">
-              <Markdown remarkPlugins={[remarkGfm]}>
-                {sanitizeSociologyMarkdown(generatedAnswer.content)}
-              </Markdown>
-            </div>
+            {/* PEEL / Prose View Mode Toggle Bar (If Answer contains PEEL structure) */}
+            {(() => {
+              const hasPEEL = /POINT/i.test(generatedAnswer.content) && /EVIDENCE/i.test(generatedAnswer.content);
+              const parsedParagraphs = hasPEEL ? parsePEELParagraphs(generatedAnswer.content) : [];
+
+              return (
+                <div className="space-y-4 pt-2">
+                  {hasPEEL && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                        <Layers size={15} className="text-indigo-600" />
+                        <span>Interactive Structure View:</span>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-slate-200/70 p-0.5 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setDisplayMode('peel')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            displayMode === 'peel'
+                              ? 'bg-white text-indigo-700 shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <Zap size={13} />
+                          <span>Structured PEEL Cards</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDisplayMode('prose')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            displayMode === 'prose'
+                              ? 'bg-white text-indigo-700 shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <FileText size={13} />
+                          <span>Continuous Prose</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Render Answer */}
+                  {hasPEEL && displayMode === 'peel' ? (
+                    <div className="space-y-4">
+                      {parsedParagraphs.map((para, pIdx) => {
+                        if (para.isPEEL && para.blocks) {
+                          return (
+                            <div key={pIdx} className="space-y-3 bg-slate-50/60 p-5 rounded-2xl border border-slate-200 shadow-2xs">
+                              {para.blocks.map((block, bIdx) => {
+                                const styles = {
+                                  POINT: { 
+                                    bg: 'bg-blue-50/60 border-l-4 border-blue-500 text-blue-950', 
+                                    label: 'POINT (AO1 Claim)', 
+                                    desc: 'Direct thesis assertion answering question prompt',
+                                    badge: 'bg-blue-600 text-white' 
+                                  },
+                                  EVIDENCE: { 
+                                    bg: 'bg-purple-50/60 border-l-4 border-purple-500 text-purple-950', 
+                                    label: 'EVIDENCE (Empirical & Theorists)', 
+                                    desc: 'Named sociologists with dates, landmark empirical studies, statistics & facts',
+                                    badge: 'bg-purple-600 text-white' 
+                                  },
+                                  EXPLANATION: { 
+                                    bg: 'bg-amber-50/60 border-l-4 border-amber-500 text-amber-950', 
+                                    label: 'EXPLANATION (Theoretical Mechanism)', 
+                                    desc: 'How & why it works: conceptual analysis, structural & action processes',
+                                    badge: 'bg-amber-600 text-white' 
+                                  },
+                                  EVALUATION: { 
+                                    bg: 'bg-rose-50/60 border-l-4 border-rose-500 text-rose-950', 
+                                    label: 'EVALUATION (AO3 Critical Appraisal)', 
+                                    desc: 'Methodological limitations, temporal shifts & rival theoretical paradigms',
+                                    badge: 'bg-rose-600 text-white' 
+                                  },
+                                  LINK: { 
+                                    bg: 'bg-emerald-50/60 border-l-4 border-emerald-500 text-emerald-950', 
+                                    label: 'LINK (Synthesis & Focus)', 
+                                    desc: 'Explicit synthesis and qualified mini-judgement back to question wording',
+                                    badge: 'bg-emerald-600 text-white' 
+                                  },
+                                  TEXT: { 
+                                    bg: 'bg-slate-50 border-l-4 border-slate-400 text-slate-900', 
+                                    label: 'DETAIL', 
+                                    desc: 'Contextual sociological analysis',
+                                    badge: 'bg-slate-500 text-white' 
+                                  }
+                                }[block.type] || { 
+                                  bg: 'bg-slate-50 border-l-4 border-slate-400 text-slate-900', 
+                                  label: 'DETAIL', 
+                                  desc: 'Contextual sociological analysis',
+                                  badge: 'bg-slate-500 text-white' 
+                                };
+
+                                return (
+                                  <div key={bIdx} className={`p-4 rounded-xl border border-slate-200/80 ${styles.bg} space-y-2`}>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block ${styles.badge}`}>
+                                        {styles.label}
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 font-medium italic">
+                                        {styles.desc}
+                                      </span>
+                                    </div>
+                                    <div className="text-sm font-medium leading-relaxed text-slate-800 markdown-body prose max-w-none">
+                                      <Markdown remarkPlugins={[remarkGfm]}>{sanitizeSociologyMarkdown(block.text)}</Markdown>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={pIdx} className="bg-white p-5 rounded-2xl border border-slate-200 text-sm font-medium leading-relaxed text-slate-800 markdown-body prose max-w-none shadow-2xs">
+                            <Markdown remarkPlugins={[remarkGfm]}>{sanitizeSociologyMarkdown(para.text || '')}</Markdown>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="markdown-body prose prose-slate max-w-none pt-1">
+                      <Markdown remarkPlugins={[remarkGfm]}>
+                        {sanitizeSociologyMarkdown(hasPEEL && displayMode === 'prose' ? cleanPEELForProse(generatedAnswer.content) : generatedAnswer.content)}
+                      </Markdown>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <AIStudyDisclaimer className="mt-4" />
+
+            <SourcesPanel
+              citations={generatedAnswer.citations}
+              unsupportedClaims={generatedAnswer.unsupportedClaims}
+              hasUnverifiedWarning={(generatedAnswer.unsupportedClaims?.length || 0) > 0}
+              className="mt-6"
+            />
 
             {/* Examiner AO Marks Commentary & Report (Placed After the Answer) */}
             <div className="bg-indigo-50/70 border border-indigo-100 rounded-xl p-5 space-y-3 break-inside-avoid">
               <div className="flex items-center gap-2 text-indigo-900 font-bold text-sm">
                 <Award size={18} className="text-indigo-600" />
-                <span>Chief Examiner Assessment & AO Breakdown Report</span>
+                <span>Assessment Commentary & AO Breakdown Report (Informed by Cambridge Guidance)</span>
               </div>
               <p className="text-slate-700 text-xs sm:text-sm leading-relaxed">
                 {generatedAnswer.analysis}
@@ -701,7 +927,7 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
                     CAMBRIDGE INTERNATIONAL AS & A LEVEL SOCIOLOGY (9699)
                   </div>
                   <h1 className="text-2xl font-bold tracking-tight text-black mt-1">
-                    A* Model Answer Specification
+                    Illustrative Model Response Specification
                   </h1>
                 </div>
                 <div className="text-right">
@@ -728,7 +954,7 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
                   <span className="font-semibold text-black">Textbook Standard:</span> Collins & Cambridge University Press Aligned
                 </div>
                 <div>
-                  <span className="font-semibold text-black">Target Band:</span> Level 4 / Level 5 (Guaranteed Full Marks)
+                  <span className="font-semibold text-black">Target Band:</span> Level 4 / Level 5 (High-Band Model Response)
                 </div>
               </div>
             </div>
@@ -743,7 +969,7 @@ CRITICAL KEYWORD & FORMATTING DIRECTIVES:
             {/* Examiner AO Commentary & Report in Print (After Model Answer) */}
             <div className="border border-neutral-300 p-4 rounded-md mb-6 break-inside-avoid text-xs text-neutral-800 bg-neutral-50/50">
               <div className="font-bold text-black uppercase text-[11px] mb-1">
-                Chief Examiner Assessment & AO Breakdown Report:
+                Assessment Commentary & AO Breakdown Report (Informed by Cambridge Guidance):
               </div>
               <p className="mb-2 leading-relaxed">{generatedAnswer.analysis}</p>
               <div className="grid grid-cols-3 gap-2 pt-2 border-t border-neutral-200 text-[11px]">

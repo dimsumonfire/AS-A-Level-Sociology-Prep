@@ -41,10 +41,13 @@ import {
   BadgeAlert,
   User,
   Hash,
-  School
+  School,
+  Info,
+  CheckCircle
 } from 'lucide-react';
 import { sanitizeSociologyMarkdown } from '../markdownUtils';
 import { exportElementToPdf } from '../pdfUtils';
+import AIStudyDisclaimer from './AIStudyDisclaimer';
 
 export interface MarkDeduction {
   category: 'AO1 Knowledge Gaps' | 'AO2 Application Deficit' | 'AO3 Juxtaposition Penalty' | 'Methodological Omission' | 'Common-Sense Writing' | 'Lack of Named Theorists / Studies';
@@ -64,19 +67,28 @@ export interface EvaluatedQuestion {
   questionTitle: string;
   questionText: string;
   tariffStructure?: string;
-  marksPossible: number;
-  marksAwarded: number;
-  awardedLevelBand: string;
+  maximumMark: number;
+  estimatedMarkMin: number;
+  estimatedMarkMax: number;
+  indicativeLevel: string;
+  confidence: 'Low' | 'Moderate' | 'High';
+  confidenceExplanation: string;
+  evidenceFromStudentAnswer: string[];
+  missingRequirements: string[];
+  actionsToReachNextBand: string[];
   ecrBenchmarkLevel?: 'High' | 'Middle' | 'Low';
   commonPitfallsDetected?: string[];
   ecrGuidanceNotes?: string;
-  ao1Score: number;
+  ao1EstimatedMin: number;
+  ao1EstimatedMax: number;
   ao1Max: number;
   ao1Commentary?: string;
-  ao2Score: number;
+  ao2EstimatedMin: number;
+  ao2EstimatedMax: number;
   ao2Max: number;
   ao2Commentary?: string;
-  ao3Score: number;
+  ao3EstimatedMin: number;
+  ao3EstimatedMax: number;
   ao3Max: number;
   ao3Commentary?: string;
   examinerCommentary: string;
@@ -93,6 +105,13 @@ export interface EvaluatedQuestion {
   keyImprovements: string[];
   upgradedSampleParagraph?: string;
   upgradeExplanation?: string;
+  // Compatibility fields
+  marksAwarded?: number;
+  marksPossible?: number;
+  ao1Score?: number;
+  ao2Score?: number;
+  ao3Score?: number;
+  awardedLevelBand?: string;
 }
 
 export interface MultiQuestionExamResult {
@@ -102,21 +121,205 @@ export interface MultiQuestionExamResult {
   centreNumber?: string;
   syllabusComponent?: string;
   isAccessArrangementTranscript?: boolean;
-  totalMarksAwarded: number;
+  totalEstimatedMin: number;
+  totalEstimatedMax: number;
   totalMarksPossible: number;
-  overallGrade: string;
-  overallLevel: string;
+  indicativeLevel: string;
+  confidence: 'Low' | 'Moderate' | 'High';
+  confidenceExplanation: string;
   ecrBenchmarkLevel?: 'High' | 'Middle' | 'Low';
   markingRigorMode?: string;
   overallExaminerSummary: string;
   globalStrengths: string[];
   globalImprovements: string[];
   totalQuestionsDetected: number;
-  totalMarksLost: number;
   topPenaltiesAcrossScript: string[];
   scriptExaminerStamps?: ExaminerStamp[];
   scriptCommonPitfalls?: string[];
   questions: EvaluatedQuestion[];
+  // Compatibility fields
+  totalMarksAwarded?: number;
+  totalMarksLost?: number;
+  overallGrade?: string;
+  overallLevel?: string;
+}
+
+/**
+ * Normalizes and guards all numerical scores, ranges, and fields from AI evaluation
+ */
+function normalizeExamResult(data: any): MultiQuestionExamResult {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid exam evaluation response format.');
+  }
+
+  const rawQuestions = Array.isArray(data.questions) ? data.questions : [];
+  const questions: EvaluatedQuestion[] = rawQuestions.map((q: any, idx: number) => {
+    const maximumMark = Number(q.maximumMark || q.marksPossible) || 
+      (Number(q.ao1Max || 0) + Number(q.ao2Max || 0) + Number(q.ao3Max || 0)) || 10;
+    
+    // Min and Max marks
+    let minMark = q.estimatedMarkMin !== undefined && q.estimatedMarkMin !== null && !isNaN(Number(q.estimatedMarkMin))
+      ? Number(q.estimatedMarkMin)
+      : (q.marksAwarded !== undefined && !isNaN(Number(q.marksAwarded)) ? Number(q.marksAwarded) : 0);
+    
+    let maxMark = q.estimatedMarkMax !== undefined && q.estimatedMarkMax !== null && !isNaN(Number(q.estimatedMarkMax))
+      ? Number(q.estimatedMarkMax)
+      : minMark;
+    
+    if (isNaN(minMark)) minMark = 0;
+    if (isNaN(maxMark)) maxMark = minMark;
+    if (minMark > maxMark) {
+      const temp = minMark;
+      minMark = maxMark;
+      maxMark = temp;
+    }
+    
+    // Clamp to maximumMark
+    minMark = Math.min(maximumMark, Math.max(0, minMark));
+    maxMark = Math.min(maximumMark, Math.max(0, maxMark));
+    
+    const marksAwarded = q.marksAwarded !== undefined && !isNaN(Number(q.marksAwarded)) 
+      ? Number(q.marksAwarded) 
+      : Math.round((minMark + maxMark) / 2);
+
+    const ao1Max = Number(q.ao1Max) || (maximumMark === 2 ? 2 : maximumMark === 4 ? 4 : maximumMark === 8 ? 5 : maximumMark === 10 ? 6 : maximumMark === 12 ? 4 : maximumMark === 26 ? 8 : Math.ceil(maximumMark * 0.5));
+    const ao2Max = Number(q.ao2Max) || (maximumMark === 8 ? 3 : maximumMark === 10 ? 4 : maximumMark === 12 ? 4 : maximumMark === 26 ? 8 : 0);
+    const ao3Max = Number(q.ao3Max) || (maximumMark === 12 ? 4 : maximumMark === 26 ? 10 : 0);
+
+    const ao1Min = (q.ao1EstimatedMin !== undefined && !isNaN(Number(q.ao1EstimatedMin)))
+      ? Number(q.ao1EstimatedMin)
+      : Math.min(ao1Max, Math.round(minMark * (ao1Max / (maximumMark || 1))));
+    const ao1MaxEst = (q.ao1EstimatedMax !== undefined && !isNaN(Number(q.ao1EstimatedMax)))
+      ? Number(q.ao1EstimatedMax)
+      : Math.min(ao1Max, Math.round(maxMark * (ao1Max / (maximumMark || 1))));
+    const ao1Score = q.ao1Score !== undefined && !isNaN(Number(q.ao1Score)) ? Number(q.ao1Score) : Math.round((ao1Min + ao1MaxEst) / 2);
+
+    const ao2Min = (q.ao2EstimatedMin !== undefined && !isNaN(Number(q.ao2EstimatedMin)))
+      ? Number(q.ao2EstimatedMin)
+      : (ao2Max > 0 ? Math.min(ao2Max, Math.round(minMark * (ao2Max / (maximumMark || 1)))) : 0);
+    const ao2MaxEst = (q.ao2EstimatedMax !== undefined && !isNaN(Number(q.ao2EstimatedMax)))
+      ? Number(q.ao2EstimatedMax)
+      : (ao2Max > 0 ? Math.min(ao2Max, Math.round(maxMark * (ao2Max / (maximumMark || 1)))) : 0);
+    const ao2Score = q.ao2Score !== undefined && !isNaN(Number(q.ao2Score)) ? Number(q.ao2Score) : Math.round((ao2Min + ao2MaxEst) / 2);
+
+    const ao3Min = (q.ao3EstimatedMin !== undefined && !isNaN(Number(q.ao3EstimatedMin)))
+      ? Number(q.ao3EstimatedMin)
+      : (ao3Max > 0 ? Math.min(ao3Max, Math.round(minMark * (ao3Max / (maximumMark || 1)))) : 0);
+    const ao3MaxEst = (q.ao3EstimatedMax !== undefined && !isNaN(Number(q.ao3EstimatedMax)))
+      ? Number(q.ao3EstimatedMax)
+      : (ao3Max > 0 ? Math.min(ao3Max, Math.round(maxMark * (ao3Max / (maximumMark || 1)))) : 0);
+    const ao3Score = q.ao3Score !== undefined && !isNaN(Number(q.ao3Score)) ? Number(q.ao3Score) : Math.round((ao3Min + ao3MaxEst) / 2);
+
+    const pct = maximumMark > 0 ? (marksAwarded / maximumMark) : 0;
+    const defaultLevel = pct >= 0.8 ? 'Level 4 / Top Band' : pct >= 0.6 ? 'Level 3 / Sound' : pct >= 0.4 ? 'Level 2 / Basic' : 'Level 1 / Limited';
+
+    return {
+      questionId: String(q.questionId || `q${idx + 1}`),
+      questionTitle: String(q.questionTitle || `Question ${idx + 1}`),
+      questionText: String(q.questionText || `Question ${idx + 1}`),
+      tariffStructure: q.tariffStructure,
+      maximumMark,
+      marksPossible: maximumMark,
+      estimatedMarkMin: minMark,
+      estimatedMarkMax: maxMark,
+      marksAwarded,
+      indicativeLevel: String(q.indicativeLevel || defaultLevel),
+      awardedLevelBand: String(q.awardedLevelBand || q.indicativeLevel || defaultLevel),
+      confidence: q.confidence === 'High' || q.confidence === 'Low' ? q.confidence : 'Moderate',
+      confidenceExplanation: String(q.confidenceExplanation || 'Based on syllabus mark scheme criteria.'),
+      evidenceFromStudentAnswer: Array.isArray(q.evidenceFromStudentAnswer) ? q.evidenceFromStudentAnswer : [],
+      missingRequirements: Array.isArray(q.missingRequirements) ? q.missingRequirements : [],
+      actionsToReachNextBand: Array.isArray(q.actionsToReachNextBand) ? q.actionsToReachNextBand : [],
+      ecrBenchmarkLevel: q.ecrBenchmarkLevel || (pct >= 0.7 ? 'High' : pct >= 0.4 ? 'Middle' : 'Low'),
+      commonPitfallsDetected: Array.isArray(q.commonPitfallsDetected) ? q.commonPitfallsDetected : [],
+      ecrGuidanceNotes: q.ecrGuidanceNotes,
+      ao1EstimatedMin: ao1Min,
+      ao1EstimatedMax: ao1MaxEst,
+      ao1Max,
+      ao1Score,
+      ao1Commentary: q.ao1Commentary,
+      ao2EstimatedMin: ao2Min,
+      ao2EstimatedMax: ao2MaxEst,
+      ao2Max,
+      ao2Score,
+      ao2Commentary: q.ao2Commentary,
+      ao3EstimatedMin: ao3Min,
+      ao3EstimatedMax: ao3MaxEst,
+      ao3Max,
+      ao3Score,
+      ao3Commentary: q.ao3Commentary,
+      examinerCommentary: String(q.examinerCommentary || 'Candidate answer evaluated against Cambridge 9699 mark criteria.'),
+      transcribedAnswer: String(q.transcribedAnswer || ''),
+      examinerStamps: Array.isArray(q.examinerStamps) ? q.examinerStamps : [],
+      markDeductions: Array.isArray(q.markDeductions) ? q.markDeductions : [],
+      annotatedSnippets: Array.isArray(q.annotatedSnippets) ? q.annotatedSnippets : [],
+      keyStrengths: Array.isArray(q.keyStrengths) ? q.keyStrengths : [],
+      keyImprovements: Array.isArray(q.keyImprovements) ? q.keyImprovements : [],
+      upgradedSampleParagraph: q.upgradedSampleParagraph,
+      upgradeExplanation: q.upgradeExplanation
+    };
+  });
+
+  const sumPossible = questions.reduce((acc, q) => acc + (q.maximumMark || 0), 0);
+  const totalMarksPossible = (data.totalMarksPossible && !isNaN(Number(data.totalMarksPossible)) && Number(data.totalMarksPossible) > 0)
+    ? Number(data.totalMarksPossible)
+    : (sumPossible > 0 ? sumPossible : 60);
+
+  const sumMin = questions.reduce((acc, q) => acc + (q.estimatedMarkMin || 0), 0);
+  const sumMax = questions.reduce((acc, q) => acc + (q.estimatedMarkMax || 0), 0);
+  const sumAwarded = questions.reduce((acc, q) => acc + (q.marksAwarded || 0), 0);
+
+  let totalEstimatedMin = (data.totalEstimatedMin !== undefined && !isNaN(Number(data.totalEstimatedMin)))
+    ? Number(data.totalEstimatedMin)
+    : sumMin;
+  let totalEstimatedMax = (data.totalEstimatedMax !== undefined && !isNaN(Number(data.totalEstimatedMax)))
+    ? Number(data.totalEstimatedMax)
+    : sumMax;
+  
+  if (totalEstimatedMin > totalEstimatedMax) {
+    const temp = totalEstimatedMin;
+    totalEstimatedMin = totalEstimatedMax;
+    totalEstimatedMax = temp;
+  }
+
+  const totalMarksAwarded = (data.totalMarksAwarded !== undefined && !isNaN(Number(data.totalMarksAwarded)))
+    ? Number(data.totalMarksAwarded)
+    : (sumAwarded > 0 ? sumAwarded : Math.round((totalEstimatedMin + totalEstimatedMax) / 2));
+
+  const totalMarksLost = Math.max(0, totalMarksPossible - totalMarksAwarded);
+
+  const overallPct = totalMarksPossible > 0 ? (totalMarksAwarded / totalMarksPossible) : 0;
+  const overallGrade = data.overallGrade || (overallPct >= 0.8 ? 'A*' : overallPct >= 0.7 ? 'A' : overallPct >= 0.6 ? 'B' : overallPct >= 0.5 ? 'C' : overallPct >= 0.4 ? 'D' : 'E');
+  const overallLevel = data.overallLevel || data.indicativeLevel || (overallPct >= 0.75 ? 'Upper Band' : overallPct >= 0.5 ? 'Middle Band' : 'Basic Band');
+
+  return {
+    paperTitle: String(data.paperTitle || 'Sociology Paper 1: Socialisation, Identity and Methods of Research'),
+    candidateName: data.candidateName,
+    candidateNumber: data.candidateNumber,
+    centreNumber: data.centreNumber,
+    syllabusComponent: data.syllabusComponent,
+    isAccessArrangementTranscript: data.isAccessArrangementTranscript,
+    totalEstimatedMin,
+    totalEstimatedMax,
+    totalMarksPossible,
+    totalMarksAwarded,
+    totalMarksLost,
+    overallGrade,
+    overallLevel,
+    indicativeLevel: String(data.indicativeLevel || overallLevel),
+    confidence: data.confidence === 'High' || data.confidence === 'Low' ? data.confidence : 'Moderate',
+    confidenceExplanation: String(data.confidenceExplanation || 'Evaluated against published Cambridge 9699 assessment criteria.'),
+    ecrBenchmarkLevel: data.ecrBenchmarkLevel || (overallPct >= 0.7 ? 'High' : overallPct >= 0.4 ? 'Middle' : 'Low'),
+    markingRigorMode: data.markingRigorMode,
+    overallExaminerSummary: String(data.overallExaminerSummary || 'Candidate demonstrated understanding of key concepts with opportunities for deeper evaluation and named theoretical evidence.'),
+    globalStrengths: Array.isArray(data.globalStrengths) ? data.globalStrengths : [],
+    globalImprovements: Array.isArray(data.globalImprovements) ? data.globalImprovements : [],
+    totalQuestionsDetected: questions.length || Number(data.totalQuestionsDetected) || 1,
+    topPenaltiesAcrossScript: Array.isArray(data.topPenaltiesAcrossScript) ? data.topPenaltiesAcrossScript : [],
+    scriptExaminerStamps: Array.isArray(data.scriptExaminerStamps) ? data.scriptExaminerStamps : [],
+    scriptCommonPitfalls: Array.isArray(data.scriptCommonPitfalls) ? data.scriptCommonPitfalls : [],
+    questions
+  };
 }
 
 /**
@@ -328,103 +531,74 @@ export default function AnswerScannerView() {
         });
       });
 
-      const prompt = `You are the Senior Chief Examiner for Cambridge International AS & A Level Sociology (9699).
+      const prompt = `You provide AI-assisted feedback aligned with Cambridge International AS & A Level Sociology (9699) assessment objectives.
 You evaluate student exam answer scripts uploaded as multi-page PDF documents or scanned/photographed image pages containing ONE OR MULTIPLE QUESTIONS across Paper 1 (Socialisation, Identity & Methods), Paper 2 (The Family), Paper 3 (Education), or Paper 4 (Globalisation, Media & Religion).
+
+TRANSPARENT ESTIMATION DIRECTIVES (CRITICAL):
+- DO NOT present marks as definitive or official Cambridge awards.
+- Return ESTIMATED MARK RANGES (e.g. estimatedMarkMin = 18, estimatedMarkMax = 22 out of maximumMark = 26).
+- Return an INDICATIVE LEVEL (e.g. "High Level 4 / possible Level 5" or "Level 3 Band").
+- Return a CONFIDENCE rating ('Low', 'Moderate', or 'High') with a concise confidenceExplanation (explaining factors such as handwriting clarity, answer completeness, or boundary proximity).
+- Do not infer final qualification grades (A*, A, B, etc.) from a single script or response.
+- State clear evidence from the student's answer supporting each judgement.
+- Explicitly list missing requirements and specific actions needed to reach the next band.
 
 EXAM SUBMISSION PARAMETERS:
 - TARGET PAPER: ${selectedPaper}
-- MARKING RIGOR STANDARD: ${markingRigor === 'strict' ? 'OFFICIAL CAMBRIDGE STRICT STANDARD (ZERO MARK INFLATION - Authentic Chief Examiner Rigour)' : markingRigor === 'standard' ? 'STANDARD EXAM RIGOUR' : 'FORMATIVE DIAGNOSTIC'}
+- MARKING RIGOR STANDARD: ${markingRigor === 'strict' ? 'Strict calibration aligned with published Cambridge 9699 mark schemes' : markingRigor === 'standard' ? 'Standard assessment objective alignment' : 'Formative diagnostic feedback'}
 - OPTIONAL GUIDANCE / STUDENT TEXT: "${optionalQuestionGuidance.trim() || 'Auto-detect all questions directly from the uploaded PDF/images answer script.'}"
 
 ================================================================================
-OFFICIAL CAMBRIDGE 2024 EXAMPLE CANDIDATE RESPONSES (ECR) MARKING BENCHMARKS:
+CAMBRIDGE 9699 ASSESSMENT OBJECTIVES & STRUCTURE GUIDANCE:
 ================================================================================
 
 1. QUESTION 1 (4 MARKS SHORT ANSWER - P1, P2, P3):
    - STRUCTURE: 2 distinct points (2 marks each). Total = 4 marks (AO1).
    - PART-MARK BREAKDOWN:
-     * Point 1: 1 mark for clear identification of a valid feature/way + 1 mark for description/development in context.
-     * Point 2: 1 mark for identification of second distinct way + 1 mark for description/development in context.
-   - EXAMINER CRITERIA & PITFALLS:
-     * No marks for introductions or generic definitions.
-     * Identification without description receives only 1 mark (e.g. saying "child protection agencies" without explaining how it makes families child-centred).
-     * Overlapping/repeated points receive 0 for the second point (e.g. "don't contribute" and "burdens" in elderly questions).
-     * Must describe the specific context requested (e.g., in the family, in the school), not society in general.
+     * Point 1: 1 mark for clear identification + 1 mark for description in context.
+     * Point 2: 1 mark for second distinct identification + 1 mark for description in context.
 
 2. QUESTION 2(a) / 8-MARK STRUCTURED QUESTIONS (P1 Q2a, P2 Q2a, P3 Q2):
    - STRUCTURE: 2 distinct reasons/ways (4 marks each). Total = 8 marks (AO1=4, AO2=4).
    - 4-PART BREAKDOWN PER POINT:
      * 1 mark: Identification of valid reason/way
      * 1 mark: Explanation of the reason/way
-     * 1 mark: Selection of relevant sociological material/evidence (theorist with year, study, or key concept)
+     * 1 mark: Selection of relevant sociological material/evidence (theorist, study, or concept)
      * 1 mark: Explicit application of that material to answer the specific question prompt
-   - EXAMINER CRITERIA & PITFALLS:
-     * Selecting a term (e.g. "Likert scale", "reliable") without using it to explain the point docks the 4th mark.
-     * General lay assertions without sociological concepts cap the point at 2/4.
-     * Answers must directly answer the target group/method (e.g. reasons *positivists* use questionnaires, or ways *men* benefit more than women).
 
-3. QUESTION 2(b) / 6-MARK METHODOLOGICAL & THEORETICAL LIMITATIONS (P1 Q2b, P2 Q2b):
+3. QUESTION 2(b) / 6-MARK LIMITATIONS (P1 Q2b, P2 Q2b):
    - STRUCTURE: 2 distinct limitations or strengths (3 marks each). Total = 6 marks (AO1=3, AO2=3).
-   - STRICT 3-STEP RUBRIC PER POINT:
-     * Step 1 (1 mark): Identify limitation or strength.
-     * Step 2 (1 mark): Explain what it is about the method or theoretical approach that leads to this limitation/strength.
-     * Step 3 (1 mark): Explain why this is a limitation/strength (impact on validity, reliability, ethics, representativeness, or theoretical blindspots).
-   - EXAMINER CRITERIA & PITFALLS:
-     * Practical issues (e.g. "funding/time") are NOT credited unless made specific to the method.
-     * Stating an ethical violation (e.g. lack of consent) without explaining the sociological consequence (e.g. psychological harm or invalidity) docks the 3rd mark.
+   - 3-STEP RUBRIC PER POINT: Identification (1m) + Methodological explanation (1m) + Sociological impact on validity/reliability/ethics (1m).
 
 4. QUESTION 3(a) (10 MARKS in P1/P2) & QUESTION 3 (12 MARKS in P3):
    - STRUCTURE: 2 fully developed points (5 marks each in P1/P2; 6 marks each in P3).
-   - EXAMINER CRITERIA & PITFALLS:
-     * Must engage named sociological theories (e.g. Bourdieu, Sugarman, Murray, Chester, Sewell, McRobbie, Becker) and unpack how the mechanism produces the outcome (e.g. how cultural capital leads to teacher labelling or streaming; how feminisation of education/bedroom culture advantages girls).
-     * Descriptive or underdeveloped points without named empirical studies are capped at Level 2 (4-6/10 or 5-8/12).
+   - Engages named sociological theories with clear explanatory mechanisms.
 
 5. QUESTION 3(b) / 6-MARK SINGLE COUNTERARGUMENT (P1 Q3b, P2 Q3b):
    - STRUCTURE: Exactly ONE well-developed counterargument (up to 6 marks: AO1=3, AO2=3 or AO3=6).
-   - EXAMINER CRITERIA & PITFALLS:
-     * Only ONE argument can be rewarded. Candidates giving multiple rushed points are marked on the best single point.
-     * Must explicitly counter the view in 3(a) and explain why the counter-factor is more significant (e.g. biological factors vs cultural deprivation; individualized family diversity vs nuclear dominance).
 
 6. SECTION B 26-MARK EXTENDED ESSAYS (P1 Q4/5, P2 Q4/5, P3 Q4):
-   - TARIFF:
-     * Paper 1 & 2: AO1=8, AO2=8, AO3=10. Total = 26 Marks.
-     * Paper 3 (Education): AO1=10, AO2=6, AO3=10. Total = 26 Marks.
-   - EXAMINER CRITERIA & PITFALLS:
-     * JUXTAPOSITION PENALTY: Merely presenting alternative theories side-by-side without direct critique ("Functionalists say X, on the other hand Marxists say Y") caps AO3 at Level 2 (3-5/10).
-     * EXPLICIT EVALUATION: Continuous evaluation within paragraphs ("However, this view ignores...", "Conversely, empirical evidence from X shows...") and an evaluative, non-moralising conclusion weighs up arguments to reach Level 3 (6-8/10) or Level 4 (9-10/10).
+   - TARIFF: Paper 1 & 2 (AO1=8, AO2=8, AO3=10); Paper 3 (AO1=10, AO2=6, AO3=10).
+   - Requires ongoing evaluation within paragraphs and evaluative conclusions.
 
-7. PAPER 4 ESSAYS (35 MARKS EACH - Globalisation, Media & Religion):
-   - TARIFF: AO1=9, AO2=11, AO3=15. Total = 35 Marks per essay.
-   - EXAMINER CRITERIA & PITFALLS:
-     * DO NOT CONFLATE TNCs with all Transnational Organisations (must consider IGOs like IMF/World Bank and NGOs like Oxfam).
-     * DO NOT CONFLATE the ruling class with the state/government.
-     * DO NOT CONFLATE decline in church attendance with decline in the social significance of religion (consider privatised religion, Davie 'believing without belonging', fundamentalism, NRMs).
-     * Postmodernism does not have an explicit theory of power; do not confuse simulacra/hyperreality with deliberate ruling-class manipulation.
-     * Moralising conclusions ("TNCs ought to behave better") receive 0 marks for evaluation; conclusions must critically judge which perspective is most persuasive.
+7. PAPER 4 ESSAYS (35 MARKS EACH):
+   - TARIFF: AO1=9, AO2=11, AO3=15. Total = 35 Marks.
 
 ================================================================================
-AUTHENTIC CAMBRIDGE ON-SCREEN EXAMINER STAMPS (CRITICAL):
+EXAMINER STAMP ANNOTATIONS:
 ================================================================================
-Apply these standardized on-screen marking annotations across the script:
-- [BOD] Benefit of Doubt: Used when a point is borderline or awkwardly expressed but given credit.
-- [EXP] Explanation / Development: Crediting sociological explanation linking concept to question.
-- [DEV] Development: Showing logical progression in an argument or paragraph.
-- [EVAL] Evaluation: Used in AO3 to credit critical analysis, counterarguments, or synthesis.
-- [TV] Too Vague: Used when an assertion is imprecise, colloquial, or lacks sociological rigor.
-- [NAQ] Not Answering Question: Point is sociologically true but fails to address the specific question prompt.
-- [GEN] Generalised: Broad assertions without specific sociology, empirical data, or theorists.
-- [M] Marginal / Minor credit: Fragmented point with limited depth.
-- [SEEN] Blank / Ruled page checked and not skipped.
-- [TICK] Valid sociological point credited.
-- [CROSS] Incorrect or sociologically invalid assertion.
-
-OUTPUT REQUIREMENTS:
-- Calculate total marks awarded and total marks lost across all detected questions.
-- Identify all examiner stamps applied.
-- Classify script and questions into ECR Benchmark Levels ('High', 'Middle', 'Low').
-- Identify specific common pitfalls detected.
-- Provide tailored Senior Examiner Guidance notes bridging candidate's current performance to High Band.
-- For each question: transcribe candidate text (OCR), assess AO1, AO2, AO3 scores with commentaries, state the specific awarded Cambridge Level Band, detail all mark deductions, list examiner stamps applied, provide strengths, areas for improvement, annotated script snippets with stamp codes, and a high-band model upgrade paragraph.
+Apply these standardized on-screen marking annotations:
+- [BOD] Benefit of Doubt
+- [EXP] Explanation / Development
+- [DEV] Development
+- [EVAL] Evaluation
+- [TV] Too Vague
+- [NAQ] Not Answering Question
+- [GEN] Generalised
+- [M] Marginal / Minor credit
+- [SEEN] Checked
+- [TICK] Valid sociological point credited
+- [CROSS] Incorrect or invalid assertion
 
 Return your response strictly as a JSON object adhering to the schema.`;
 
@@ -440,41 +614,42 @@ Return your response strictly as a JSON object adhering to the schema.`;
             type: Type.OBJECT,
             properties: {
               paperTitle: { type: Type.STRING, description: 'Detected Cambridge Paper title (e.g. Paper 1: Socialisation, Identity & Methods)' },
-              candidateName: { type: Type.STRING, description: 'Candidate name if detected on cover sheet (e.g. Maya Rose Chopra)' },
-              candidateNumber: { type: Type.STRING, description: 'Candidate number (e.g. 1015)' },
-              centreNumber: { type: Type.STRING, description: 'Centre number (e.g. IA229)' },
+              candidateName: { type: Type.STRING, description: 'Candidate name if detected on cover sheet' },
+              candidateNumber: { type: Type.STRING, description: 'Candidate number' },
+              centreNumber: { type: Type.STRING, description: 'Centre number' },
               syllabusComponent: { type: Type.STRING, description: 'Syllabus and component code (e.g. 9699/12)' },
-              totalMarksAwarded: { type: Type.NUMBER, description: 'Sum of all marks awarded across all detected questions' },
+              totalEstimatedMin: { type: Type.NUMBER, description: 'Sum of minimum estimated marks across all detected questions' },
+              totalEstimatedMax: { type: Type.NUMBER, description: 'Sum of maximum estimated marks across all detected questions' },
               totalMarksPossible: { type: Type.NUMBER, description: 'Sum of all maximum possible marks across all detected questions' },
-              totalMarksLost: { type: Type.NUMBER, description: 'Total marks lost across the entire paper' },
-              overallGrade: { type: Type.STRING, description: 'Overall grade equivalent: A*, A, B, C, D, E, or U' },
-              overallLevel: { type: Type.STRING, description: 'Overall performance band (e.g. Level 3 / Intermediate Band)' },
-              ecrBenchmarkLevel: { type: Type.STRING, enum: ['High', 'Middle', 'Low'], description: 'Overall Cambridge ECR Benchmark level' },
-              markingRigorMode: { type: Type.STRING, description: 'Marking standard applied' },
-              overallExaminerSummary: { type: Type.STRING, description: 'Chief examiner comprehensive overview of the whole candidate paper' },
+              indicativeLevel: { type: Type.STRING, description: 'Indicative performance band e.g. High Level 4 / possible Level 5' },
+              confidence: { type: Type.STRING, enum: ['Low', 'Moderate', 'High'], description: 'Confidence level in the estimated evaluation' },
+              confidenceExplanation: { type: Type.STRING, description: 'Explanation of confidence factors' },
+              ecrBenchmarkLevel: { type: Type.STRING, enum: ['High', 'Middle', 'Low'], description: 'Indicative benchmark band' },
+              markingRigorMode: { type: Type.STRING, description: 'Standard applied' },
+              overallExaminerSummary: { type: Type.STRING, description: 'Comprehensive feedback overview informed by published guidance' },
               globalStrengths: { 
                 type: Type.ARRAY, 
                 items: { type: Type.STRING },
-                description: '3-4 macro strengths across the entire exam paper'
+                description: 'Key observed strengths across the answer script'
               },
               globalImprovements: { 
                 type: Type.ARRAY, 
                 items: { type: Type.STRING },
-                description: '3-4 key examiner recommendations for the candidate across the paper'
+                description: 'Key priority actions for band progression'
               },
               topPenaltiesAcrossScript: {
                 type: Type.ARRAY, 
                 items: { type: Type.STRING },
-                description: 'Summary of the most significant reasons marks were lost across the script'
+                description: 'Summary of most significant areas where marks were limited'
               },
               scriptCommonPitfalls: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
-                description: 'List of specific Cambridge examiner pitfalls detected across the script'
+                description: 'List of specific pitfalls detected across the script'
               },
               isAccessArrangementTranscript: {
                 type: Type.BOOLEAN,
-                description: 'Whether this script is a word-processor transcript with Form 4 access arrangements'
+                description: 'Whether this script is a word-processor transcript'
               },
               scriptExaminerStamps: {
                 type: Type.ARRAY,
@@ -489,7 +664,7 @@ Return your response strictly as a JSON object adhering to the schema.`;
                   required: ['stampCode', 'meaning', 'count', 'explanation']
                 }
               },
-              totalQuestionsDetected: { type: Type.NUMBER, description: 'Total count of separate questions detected in the upload' },
+              totalQuestionsDetected: { type: Type.NUMBER, description: 'Total count of separate questions detected' },
               questions: {
                 type: Type.ARRAY,
                 items: {
@@ -498,28 +673,49 @@ Return your response strictly as a JSON object adhering to the schema.`;
                     questionId: { type: Type.STRING, description: 'Identifier e.g. Q1, Q2a, Q2b, Q3a, Q3b, Q4, Q5' },
                     questionTitle: { type: Type.STRING, description: 'Question title e.g. Question 1, Question 2(a), Question 4' },
                     questionText: { type: Type.STRING, description: 'Prompt text of the question' },
-                    tariffStructure: { type: Type.STRING, description: 'Description of mark scheme structure e.g. 2 x 2 Marks (Identify + Describe in Context)' },
-                    marksPossible: { type: Type.NUMBER, description: 'Max marks possible for this question (e.g. 4, 6, 8, 10, 12, 26, 35)' },
-                    marksAwarded: { type: Type.NUMBER, description: 'Marks awarded for this specific question' },
-                    awardedLevelBand: { type: Type.STRING, description: 'Cambridge Level Band awarded e.g. Level 3 (Band 3: 13-17 / 26 Marks)' },
-                    ecrBenchmarkLevel: { type: Type.STRING, enum: ['High', 'Middle', 'Low'], description: 'ECR benchmark level for this question' },
+                    tariffStructure: { type: Type.STRING, description: 'Description of mark scheme structure' },
+                    maximumMark: { type: Type.NUMBER, description: 'Max marks possible for this question' },
+                    estimatedMarkMin: { type: Type.NUMBER, description: 'Minimum estimated mark' },
+                    estimatedMarkMax: { type: Type.NUMBER, description: 'Maximum estimated mark' },
+                    indicativeLevel: { type: Type.STRING, description: 'Indicative performance level (e.g. Level 4 / Upper Band)' },
+                    confidence: { type: Type.STRING, enum: ['Low', 'Moderate', 'High'], description: 'Confidence in assessment of this question' },
+                    confidenceExplanation: { type: Type.STRING, description: 'Why this confidence level was assigned' },
+                    evidenceFromStudentAnswer: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                      description: 'Direct evidence from student answer supporting judgements'
+                    },
+                    missingRequirements: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                      description: 'Missing syllabus or question requirements'
+                    },
+                    actionsToReachNextBand: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                      description: 'Specific actionable steps needed to reach the next band'
+                    },
+                    ecrBenchmarkLevel: { type: Type.STRING, enum: ['High', 'Middle', 'Low'] },
                     commonPitfallsDetected: {
                       type: Type.ARRAY,
                       items: { type: Type.STRING },
-                      description: 'List of specific pitfalls detected in this question answer'
+                      description: 'Pitfalls detected in this answer'
                     },
-                    ecrGuidanceNotes: { type: Type.STRING, description: 'Official Cambridge examiner advice on how to upgrade this answer to High Band' },
-                    ao1Score: { type: Type.NUMBER, description: 'AO1 mark awarded' },
+                    ecrGuidanceNotes: { type: Type.STRING, description: 'Feedback informed by published examiner guidance' },
+                    ao1EstimatedMin: { type: Type.NUMBER, description: 'Estimated AO1 min' },
+                    ao1EstimatedMax: { type: Type.NUMBER, description: 'Estimated AO1 max' },
                     ao1Max: { type: Type.NUMBER, description: 'AO1 max mark' },
-                    ao1Commentary: { type: Type.STRING, description: 'AO1 specific examiner note' },
-                    ao2Score: { type: Type.NUMBER, description: 'AO2 mark awarded' },
+                    ao1Commentary: { type: Type.STRING, description: 'AO1 specific commentary' },
+                    ao2EstimatedMin: { type: Type.NUMBER, description: 'Estimated AO2 min' },
+                    ao2EstimatedMax: { type: Type.NUMBER, description: 'Estimated AO2 max' },
                     ao2Max: { type: Type.NUMBER, description: 'AO2 max mark' },
-                    ao2Commentary: { type: Type.STRING, description: 'AO2 specific examiner note' },
-                    ao3Score: { type: Type.NUMBER, description: 'AO3 mark awarded' },
+                    ao2Commentary: { type: Type.STRING, description: 'AO2 specific commentary' },
+                    ao3EstimatedMin: { type: Type.NUMBER, description: 'Estimated AO3 min' },
+                    ao3EstimatedMax: { type: Type.NUMBER, description: 'Estimated AO3 max' },
                     ao3Max: { type: Type.NUMBER, description: 'AO3 max mark' },
-                    ao3Commentary: { type: Type.STRING, description: 'AO3 specific examiner note' },
-                    examinerCommentary: { type: Type.STRING, description: 'Chief examiner qualitative assessment on this question' },
-                    transcribedAnswer: { type: Type.STRING, description: 'Verbatim OCR transcription of student answer for this question' },
+                    ao3Commentary: { type: Type.STRING, description: 'AO3 specific commentary' },
+                    examinerCommentary: { type: Type.STRING, description: 'Qualitative assessment commentary' },
+                    transcribedAnswer: { type: Type.STRING, description: 'OCR transcription of student answer' },
                     examinerStamps: {
                       type: Type.ARRAY,
                       items: {
@@ -570,17 +766,24 @@ Return your response strictly as a JSON object adhering to the schema.`;
                     },
                     keyStrengths: { type: Type.ARRAY, items: { type: Type.STRING } },
                     keyImprovements: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    upgradedSampleParagraph: { type: Type.STRING, description: 'Level 5 rewritten model paragraph' },
-                    upgradeExplanation: { type: Type.STRING, description: 'Explanation of why the upgraded paragraph achieves full marks' }
+                    upgradedSampleParagraph: { type: Type.STRING, description: 'Illustrative high-band model response paragraph rewrite' },
+                    upgradeExplanation: { type: Type.STRING, description: 'Explanation of how the upgraded paragraph meets high-band criteria' }
                   },
                   required: [
                     'questionId',
                     'questionTitle',
                     'questionText',
-                    'marksPossible',
-                    'marksAwarded',
-                    'awardedLevelBand',
-                    'ao1Score',
+                    'maximumMark',
+                    'estimatedMarkMin',
+                    'estimatedMarkMax',
+                    'indicativeLevel',
+                    'confidence',
+                    'confidenceExplanation',
+                    'evidenceFromStudentAnswer',
+                    'missingRequirements',
+                    'actionsToReachNextBand',
+                    'ao1EstimatedMin',
+                    'ao1EstimatedMax',
                     'ao1Max',
                     'examinerCommentary',
                     'transcribedAnswer',
@@ -594,11 +797,12 @@ Return your response strictly as a JSON object adhering to the schema.`;
             },
             required: [
               'paperTitle',
-              'totalMarksAwarded',
+              'totalEstimatedMin',
+              'totalEstimatedMax',
               'totalMarksPossible',
-              'totalMarksLost',
-              'overallGrade',
-              'overallLevel',
+              'indicativeLevel',
+              'confidence',
+              'confidenceExplanation',
               'overallExaminerSummary',
               'globalStrengths',
               'globalImprovements',
@@ -613,11 +817,12 @@ Return your response strictly as a JSON object adhering to the schema.`;
       const rawText = response.text || '';
       const parsed = safeParseJson<MultiQuestionExamResult>(rawText);
 
-      if (!parsed || !parsed.questions || parsed.questions.length === 0) {
+      if (!parsed) {
         throw new Error('Could not parse exam questions from the uploaded document. Please check the document clarity and try again.');
       }
 
-      setResult(parsed);
+      const normalized = normalizeExamResult(parsed);
+      setResult(normalized);
       setActiveQuestionTab('overview');
     } catch (err: any) {
       console.error('Multi-Question Evaluation Error:', err);
@@ -630,28 +835,28 @@ Return your response strictly as a JSON object adhering to the schema.`;
   const handleCopyReport = () => {
     if (!result) return;
     let text = `CAMBRIDGE INTERNATIONAL AS & A LEVEL SOCIOLOGY (9699)
-OFFICIAL CANDIDATE SCRIPT ASSESSMENT REPORT (STRICT CALIBRATION)
+AI-ASSISTED FEEDBACK REPORT (ALIGNED WITH CAMBRIDGE 9699 ASSESSMENT OBJECTIVES)
 `;
     if (result.candidateName || result.candidateNumber || result.centreNumber || result.syllabusComponent) {
       text += `Candidate: ${result.candidateName || 'N/A'} (No: ${result.candidateNumber || 'N/A'}) | Centre: ${result.centreNumber || 'N/A'} | Syllabus: ${result.syllabusComponent || '9699'}\n`;
     }
     text += `Component: ${result.paperTitle}
-Total Score: ${result.totalMarksAwarded} / ${result.totalMarksPossible} (${Math.round((result.totalMarksAwarded / (result.totalMarksPossible || 1)) * 100)}%) - Grade ${result.overallGrade} [${result.overallLevel}]
-Total Marks Lost: -${result.totalMarksLost ?? (result.totalMarksPossible - result.totalMarksAwarded)} Marks
-Total Questions Detected: ${result.totalQuestionsDetected}
+Estimated Mark Range: ${result.totalEstimatedMin}–${result.totalEstimatedMax} / ${result.totalMarksPossible} - Indicative Level: ${result.indicativeLevel}
+Confidence: ${result.confidence} (${result.confidenceExplanation})
+Total Questions Evaluated: ${result.totalQuestionsDetected}
 
-CHIEF EXAMINER OVERVIEW:
+FEEDBACK INFORMED BY PUBLISHED EXAMINER GUIDANCE:
 ${result.overallExaminerSummary}
 
-KEY GLOBAL STRENGTHS:
+KEY OBSERVED STRENGTHS:
 ${result.globalStrengths.map(s => `• ${s}`).join('\n')}
 
-PRIORITY RECOMMENDATIONS (BAND PROGRESSION):
+PRIORITY ACTIONS FOR BAND PROGRESSION:
 ${result.globalImprovements.map(i => `• ${i}`).join('\n')}
 `;
 
     if (result.topPenaltiesAcrossScript && result.topPenaltiesAcrossScript.length > 0) {
-      text += `\nSYSTEMIC MARK DEDUCTIONS & PENALTIES ACROSS SCRIPT:\n${result.topPenaltiesAcrossScript.map(p => `• ${p}`).join('\n')}\n`;
+      text += `\nCOMMON AREAS FOR MARK IMPROVEMENT ACROSS SCRIPT:\n${result.topPenaltiesAcrossScript.map(p => `• ${p}`).join('\n')}\n`;
     }
 
     text += `
@@ -663,18 +868,26 @@ INDIVIDUAL QUESTION BREAKDOWN
     result.questions.forEach((q) => {
       text += `
 [${q.questionTitle}: ${q.questionText}]
-Score: ${q.marksAwarded} / ${q.marksPossible} Marks (${q.marksPossible - q.marksAwarded} marks lost)
-Awarded Band: ${q.awardedLevelBand || 'Standard'}
-AO Breakdown: AO1: ${q.ao1Score}/${q.ao1Max} | AO2: ${q.ao2Score || 0}/${q.ao2Max || 0} | AO3: ${q.ao3Score || 0}/${q.ao3Max || 0}
+Estimated Mark Range: ${q.estimatedMarkMin}–${q.estimatedMarkMax} / ${q.maximumMark} Marks
+Indicative Level: ${q.indicativeLevel || 'Standard'} | Confidence: ${q.confidence}
+AO Breakdown: AO1: ${q.ao1EstimatedMin}-${q.ao1EstimatedMax}/${q.ao1Max} | AO2: ${q.ao2EstimatedMin || 0}-${q.ao2EstimatedMax || 0}/${q.ao2Max || 0} | AO3: ${q.ao3EstimatedMin || 0}-${q.ao3EstimatedMax || 0}/${q.ao3Max || 0}
 Examiner Commentary: ${q.examinerCommentary}
 `;
 
-      if (q.markDeductions && q.markDeductions.length > 0) {
-        text += `\nMark Deductions:\n${q.markDeductions.map(d => `• [${d.category}] -${d.marksLost}m: ${d.reason}`).join('\n')}\n`;
+      if (q.evidenceFromStudentAnswer && q.evidenceFromStudentAnswer.length > 0) {
+        text += `\nEvidence from student answer:\n${q.evidenceFromStudentAnswer.map(e => `• ${e}`).join('\n')}\n`;
+      }
+
+      if (q.missingRequirements && q.missingRequirements.length > 0) {
+        text += `\nMissing requirements:\n${q.missingRequirements.map(m => `• ${m}`).join('\n')}\n`;
+      }
+
+      if (q.actionsToReachNextBand && q.actionsToReachNextBand.length > 0) {
+        text += `\nActions to reach next band:\n${q.actionsToReachNextBand.map(a => `• ${a}`).join('\n')}\n`;
       }
 
       if (q.upgradedSampleParagraph) {
-        text += `\nModel Level 5 Upgrade:\n"${q.upgradedSampleParagraph}"\n`;
+        text += `\nIllustrative High-Band Model Response:\n"${q.upgradedSampleParagraph}"\n`;
       }
 
       text += `
@@ -685,6 +898,8 @@ ${q.transcribedAnswer}
 `;
     });
 
+    text += `\nDISCLAIMER: AI-generated study guidance. Marks and performance bands are estimates and may differ from those awarded by a Cambridge examiner. Verify important material against the current Cambridge 9699 syllabus, published mark schemes and approved coursebooks.`;
+
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -694,11 +909,11 @@ ${q.transcribedAnswer}
     if (!result || !printContainerRef.current) return;
     setIsExportingPdf(true);
     try {
-      const filename = `Cambridge_9699_Exam_Report_${result.totalMarksAwarded}of${result.totalMarksPossible}_${result.overallGrade}.pdf`;
+      const filename = `Cambridge_9699_Study_Feedback_${result.totalEstimatedMin}to${result.totalEstimatedMax}of${result.totalMarksPossible}.pdf`;
       await exportElementToPdf(printContainerRef.current, filename);
     } catch (err) {
       console.error('PDF Export Error:', err);
-      setError('Failed to export examiner report PDF. Please try again.');
+      setError('Failed to export study report PDF. Please try again.');
     } finally {
       setIsExportingPdf(false);
     }
@@ -718,13 +933,16 @@ ${q.transcribedAnswer}
             <Camera size={24} />
           </div>
           <div>
-            <h2 className="text-3xl font-bold text-slate-900">Scan & Grade Exam Paper</h2>
+            <h2 className="text-3xl font-bold text-slate-900">Scan & Grade Practice Answers</h2>
             <p className="text-slate-600 text-sm">
-              Upload PDF exam booklets or photographed handwritten scripts. Gemini Vision automatically reads multi-page PDFs and images, segments questions (e.g. Q1, Q2a, Q2b, Q5), and applies CAIE 9699 examiner mark schemes.
+              Upload PDF practice answer scripts or scanned handwritten responses. AI evaluates work against Cambridge 9699 assessment objectives, provides estimated mark ranges, and highlights missing requirements.
             </p>
           </div>
         </div>
       </header>
+
+      {/* Prominent AI Study Disclaimer */}
+      <AIStudyDisclaimer variant="standard" />
 
       {/* Auto-Detection & PDF Info Banner */}
       <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-4 sm:p-5">
@@ -738,7 +956,7 @@ ${q.transcribedAnswer}
           </span>
         </div>
         <p className="text-xs text-slate-700 leading-relaxed">
-          Upload <strong>PDF files</strong> (scanned exam booklets, exported GoodNotes/Notability scripts, typed past papers) or <strong>camera photos</strong>. The vision system reads all pages sequentially, extracts each question, and calculates total component marks and grade boundaries.
+          Upload <strong>PDF files</strong> (scanned practice booklets, exported digital notes) or <strong>camera photos</strong>. The vision system reads pages sequentially, evaluates each question against Cambridge 9699 assessment objectives, and returns estimated mark ranges.
         </p>
       </div>
 
@@ -941,7 +1159,7 @@ ${q.transcribedAnswer}
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <ShieldCheck size={14} className="text-indigo-600" />
-                    Official CAIE Strict
+                    Cambridge 9699 Strict
                   </span>
                   <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
                     Recommended
@@ -1117,13 +1335,13 @@ ${q.transcribedAnswer}
               <div className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 bg-indigo-500/30 text-indigo-300 rounded-md border border-indigo-400/30">
-                    Official Cambridge Assessment Multi-Question Report
+                    AI-Assisted Multi-Question Assessment Report
                   </span>
                   <span className="text-xs font-bold text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-800">
                     {result.totalQuestionsDetected} Question{result.totalQuestionsDetected > 1 ? 's' : ''} Detected
                   </span>
                   <span className="text-xs font-bold text-amber-300 bg-amber-950/50 px-2 py-0.5 rounded border border-amber-800/80">
-                    Strict Rigour (Zero Inflation)
+                    Cambridge 9699 Rubric Alignment
                   </span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white">
@@ -1163,11 +1381,13 @@ ${q.transcribedAnswer}
               <div className="flex flex-wrap items-center gap-4 bg-slate-800/90 border border-slate-700/80 p-4 rounded-xl">
                 <div className="text-center min-w-[90px]">
                   <div className="text-3xl sm:text-4xl font-black text-emerald-400">
-                    {result.totalMarksAwarded}
-                    <span className="text-lg text-slate-400 font-bold">/{result.totalMarksPossible}</span>
+                    {result.totalEstimatedMin !== undefined && result.totalEstimatedMax !== undefined && result.totalEstimatedMin !== result.totalEstimatedMax
+                      ? `${result.totalEstimatedMin}–${result.totalEstimatedMax}`
+                      : (result.totalMarksAwarded ?? result.totalEstimatedMax ?? 0)}
+                    <span className="text-lg text-slate-400 font-bold">/{result.totalMarksPossible || 60}</span>
                   </div>
                   <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-0.5">
-                    Awarded ({Math.round((result.totalMarksAwarded / (result.totalMarksPossible || 1)) * 100)}%)
+                    Estimated ({Math.round(((result.totalMarksAwarded ?? result.totalEstimatedMax ?? 0) / (result.totalMarksPossible || 1)) * 100)}%)
                   </div>
                 </div>
 
@@ -1175,7 +1395,7 @@ ${q.transcribedAnswer}
 
                 <div className="text-center min-w-[80px]">
                   <div className="text-3xl sm:text-4xl font-black text-rose-400">
-                    -{result.totalMarksLost ?? (result.totalMarksPossible - result.totalMarksAwarded)}
+                    -{result.totalMarksLost ?? Math.max(0, (result.totalMarksPossible || 60) - (result.totalMarksAwarded ?? result.totalEstimatedMax ?? 0))}
                   </div>
                   <div className="text-[10px] font-bold text-rose-300 uppercase tracking-wider mt-0.5">
                     Marks Lost
@@ -1186,10 +1406,10 @@ ${q.transcribedAnswer}
 
                 <div className="text-center min-w-[90px]">
                   <div className="text-3xl sm:text-4xl font-black text-indigo-300">
-                    {result.overallGrade}
+                    {result.overallGrade || (result.totalMarksAwarded && result.totalMarksAwarded / (result.totalMarksPossible || 1) >= 0.8 ? 'A*' : 'A')}
                   </div>
                   <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-0.5">
-                    {result.overallLevel}
+                    {result.overallLevel || result.indicativeLevel || 'Upper Band'}
                   </div>
                   {result.ecrBenchmarkLevel && (
                     <span className={`inline-block mt-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
@@ -1227,8 +1447,13 @@ ${q.transcribedAnswer}
                 </button>
 
                 {result.questions.map((q, idx) => {
-                  const percentage = Math.round((q.marksAwarded / (q.marksPossible || 1)) * 100);
+                  const awarded = q.marksAwarded ?? q.estimatedMarkMax ?? 0;
+                  const max = q.marksPossible ?? q.maximumMark ?? 10;
+                  const percentage = Math.round((awarded / (max || 1)) * 100);
                   const isSelected = activeQuestionTab === idx;
+                  const markDisplay = (q.estimatedMarkMin !== undefined && q.estimatedMarkMax !== undefined && q.estimatedMarkMin !== q.estimatedMarkMax)
+                    ? `${q.estimatedMarkMin}–${q.estimatedMarkMax}`
+                    : `${awarded}`;
                   return (
                     <button
                       key={idx}
@@ -1243,7 +1468,7 @@ ${q.transcribedAnswer}
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${
                         percentage >= 80 ? 'bg-emerald-500/30 text-emerald-300' : percentage >= 50 ? 'bg-amber-500/30 text-amber-300' : 'bg-red-500/30 text-red-300'
                       }`}>
-                        {q.marksAwarded}/{q.marksPossible}m
+                        {markDisplay}/{max}m
                       </span>
                     </button>
                   );
@@ -1254,7 +1479,7 @@ ${q.transcribedAnswer}
             {/* Actions Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
               <p className="text-xs text-slate-400">
-                Rigorous evaluation calibrated against Cambridge International AS & A Level candidate mark schemes and Chief Examiner standards.
+                Rigorous evaluation calibrated against Cambridge International AS & A Level candidate mark schemes and published examiner guidance.
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -1301,7 +1526,7 @@ ${q.transcribedAnswer}
                       <span>Systemic Mark Deductions & Examiner Penalties Across Paper</span>
                     </div>
                     <span className="text-xs font-bold text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full border border-rose-300">
-                      Total Lost: -{result.totalMarksLost ?? (result.totalMarksPossible - result.totalMarksAwarded)} Marks
+                      Total Lost: -{result.totalMarksLost ?? Math.max(0, (result.totalMarksPossible || 60) - (result.totalMarksAwarded ?? 0))} Marks
                     </span>
                   </div>
 
@@ -1340,7 +1565,7 @@ ${q.transcribedAnswer}
                   <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                     <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-indigo-300">
                       <BadgeAlert size={18} className="text-indigo-400" />
-                      <span>Official Cambridge On-Screen Examiner Stamps Applied</span>
+                      <span>Examiner-Style Annotation Codes & Stamps Applied</span>
                     </div>
                     <span className="text-xs text-slate-400">
                       Total Stamp Frequency: {result.scriptExaminerStamps.reduce((sum, s) => sum + (s.count || 1), 0)}
@@ -1378,8 +1603,13 @@ ${q.transcribedAnswer}
 
                 <div className="divide-y divide-slate-100">
                   {result.questions.map((q, idx) => {
-                    const percentage = Math.round((q.marksAwarded / (q.marksPossible || 1)) * 100);
-                    const lost = q.marksPossible - q.marksAwarded;
+                    const awarded = q.marksAwarded ?? q.estimatedMarkMax ?? 0;
+                    const max = q.marksPossible ?? q.maximumMark ?? 10;
+                    const percentage = Math.round((awarded / (max || 1)) * 100);
+                    const lost = Math.max(0, max - awarded);
+                    const markDisplay = (q.estimatedMarkMin !== undefined && q.estimatedMarkMax !== undefined && q.estimatedMarkMin !== q.estimatedMarkMax)
+                      ? `${q.estimatedMarkMin}–${q.estimatedMarkMax}`
+                      : `${awarded}`;
                     return (
                       <div
                         key={idx}
@@ -1392,7 +1622,7 @@ ${q.transcribedAnswer}
                               {q.questionTitle}
                             </span>
                             <span className="text-xs font-bold text-slate-500">
-                              [{q.marksPossible} Marks Tariff]
+                              [{max} Marks Tariff]
                             </span>
                             {q.awardedLevelBand && (
                               <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
@@ -1413,7 +1643,7 @@ ${q.transcribedAnswer}
                           )}
                           <div className="text-right">
                             <div className="text-sm font-black text-slate-900">
-                              {q.marksAwarded} / {q.marksPossible}
+                              {markDisplay} / {max}
                             </div>
                             <div className="text-[10px] text-slate-500 font-semibold">
                               {percentage}% Awarded
@@ -1433,7 +1663,7 @@ ${q.transcribedAnswer}
               <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
                 <div className="flex items-center gap-2 text-indigo-900 font-bold text-lg pb-3 border-b border-slate-100">
                   <Award size={22} className="text-indigo-600" />
-                  <span>Chief Examiner Overview & Report</span>
+                  <span>Examiner Guidance Feedback & Overview</span>
                 </div>
                 
                 <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-line">
@@ -1486,8 +1716,13 @@ ${q.transcribedAnswer}
             >
               {(() => {
                 const q = result.questions[activeQuestionTab];
-                const percentage = Math.round((q.marksAwarded / (q.marksPossible || 1)) * 100);
-                const lostMarks = q.marksPossible - q.marksAwarded;
+                const awarded = q.marksAwarded ?? q.estimatedMarkMax ?? 0;
+                const max = q.marksPossible ?? q.maximumMark ?? 10;
+                const percentage = Math.round((awarded / (max || 1)) * 100);
+                const lostMarks = Math.max(0, max - awarded);
+                const markDisplay = (q.estimatedMarkMin !== undefined && q.estimatedMarkMax !== undefined && q.estimatedMarkMin !== q.estimatedMarkMax)
+                  ? `${q.estimatedMarkMin}–${q.estimatedMarkMax}`
+                  : `${awarded}`;
 
                 return (
                   <>
@@ -1500,7 +1735,7 @@ ${q.transcribedAnswer}
                               {q.questionTitle}
                             </span>
                             <span className="text-xs font-bold text-slate-600">
-                              {q.marksPossible} Marks Available
+                              {max} Marks Available
                             </span>
                             {q.tariffStructure && (
                               <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
@@ -1532,7 +1767,7 @@ ${q.transcribedAnswer}
                         <div className="flex items-center gap-3 self-start sm:self-center bg-slate-50 border border-slate-200 p-3 rounded-xl">
                           <div className="text-right">
                             <div className="text-2xl font-black text-slate-900">
-                              {q.marksAwarded} <span className="text-sm text-slate-500">/{q.marksPossible}</span>
+                              {markDisplay} <span className="text-sm text-slate-500">/{max}</span>
                             </div>
                             <div className="text-[10px] font-bold text-slate-500 uppercase">
                               {percentage}% Awarded {lostMarks > 0 && `(-${lostMarks}m)`}
@@ -1546,7 +1781,11 @@ ${q.transcribedAnswer}
                         <div className="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3.5 space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold text-indigo-900">AO1 Knowledge</span>
-                            <span className="text-xs font-black text-indigo-700">{q.ao1Score}/{q.ao1Max}</span>
+                            <span className="text-xs font-black text-indigo-700">
+                              {q.ao1EstimatedMin !== undefined && q.ao1EstimatedMax !== undefined && q.ao1EstimatedMin !== q.ao1EstimatedMax
+                                ? `${q.ao1EstimatedMin}–${q.ao1EstimatedMax}`
+                                : (q.ao1Score ?? q.ao1EstimatedMax ?? 0)}/{q.ao1Max}
+                            </span>
                           </div>
                           <p className="text-[11px] text-slate-600 leading-snug">{q.ao1Commentary || 'Evaluates understanding of sociological concepts and theories.'}</p>
                         </div>
@@ -1555,7 +1794,11 @@ ${q.transcribedAnswer}
                           <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 space-y-1">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-emerald-900">AO2 Application</span>
-                              <span className="text-xs font-black text-emerald-700">{q.ao2Score}/{q.ao2Max}</span>
+                              <span className="text-xs font-black text-emerald-700">
+                                {q.ao2EstimatedMin !== undefined && q.ao2EstimatedMax !== undefined && q.ao2EstimatedMin !== q.ao2EstimatedMax
+                                  ? `${q.ao2EstimatedMin}–${q.ao2EstimatedMax}`
+                                  : (q.ao2Score ?? q.ao2EstimatedMax ?? 0)}/{q.ao2Max}
+                              </span>
                             </div>
                             <p className="text-[11px] text-slate-600 leading-snug">{q.ao2Commentary || 'Evaluates application of evidence directly to question prompt.'}</p>
                           </div>
@@ -1565,7 +1808,11 @@ ${q.transcribedAnswer}
                           <div className="bg-purple-50/60 border border-purple-100 rounded-xl p-3.5 space-y-1">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-purple-900">AO3 Evaluation</span>
-                              <span className="text-xs font-black text-purple-700">{q.ao3Score}/{q.ao3Max}</span>
+                              <span className="text-xs font-black text-purple-700">
+                                {q.ao3EstimatedMin !== undefined && q.ao3EstimatedMax !== undefined && q.ao3EstimatedMin !== q.ao3EstimatedMax
+                                  ? `${q.ao3EstimatedMin}–${q.ao3EstimatedMax}`
+                                  : (q.ao3Score ?? q.ao3EstimatedMax ?? 0)}/{q.ao3Max}
+                              </span>
                             </div>
                             <p className="text-[11px] text-slate-600 leading-snug">{q.ao3Commentary || 'Evaluates analysis, counterarguments, and conclusion.'}</p>
                           </div>
@@ -1723,19 +1970,19 @@ ${q.transcribedAnswer}
                         </div>
                       )}
 
-                      {/* Level 5 Model Paragraph Upgrade */}
+                      {/* Illustrative High-Band Model Paragraph Upgrade */}
                       {q.upgradedSampleParagraph && (
                         <div className="bg-indigo-900 text-white rounded-xl p-5 space-y-3">
                           <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs uppercase tracking-wider">
                             <Sparkles size={16} />
-                            <span>Level 5 (A*) Model Paragraph Rewrite</span>
+                            <span>Illustrative High-Band Model Response Paragraph Rewrite</span>
                           </div>
                           <p className="text-xs sm:text-sm text-slate-100 font-serif leading-relaxed italic bg-indigo-950/60 p-4 rounded-lg border border-indigo-800/80">
                             "{q.upgradedSampleParagraph}"
                           </p>
                           {q.upgradeExplanation && (
                             <p className="text-xs text-indigo-200 font-medium">
-                              <strong>Why this gains full marks:</strong> {q.upgradeExplanation}
+                              <strong>Why this gains high marks:</strong> {q.upgradeExplanation}
                             </p>
                           )}
                         </div>
@@ -1757,7 +2004,7 @@ ${q.transcribedAnswer}
             </motion.div>
           )}
 
-          {/* Hidden Print Container for Official PDF Generation */}
+          {/* Hidden Print Container for PDF Generation */}
           <div style={{ position: 'absolute', left: '-9999px', top: '-9999px' }}>
             <div
               ref={printContainerRef}
@@ -1767,7 +2014,7 @@ ${q.transcribedAnswer}
               <div className="border-b-2 border-slate-900 pb-4 flex justify-between items-end">
                 <div>
                   <h1 className="text-2xl font-black uppercase tracking-wide">
-                    Cambridge Assessment International Education
+                    Cambridge International AS & A Level
                   </h1>
                   <h2 className="text-base font-bold text-slate-700">
                     Sociology (9699) Candidate Script Diagnostic Report
@@ -1783,16 +2030,16 @@ ${q.transcribedAnswer}
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-black text-slate-900">
-                    {result.totalMarksAwarded} / {result.totalMarksPossible}
+                    {result.totalMarksAwarded ?? result.totalEstimatedMax} / {result.totalMarksPossible || 60}
                   </div>
                   <div className="text-xs font-bold uppercase text-slate-600">
-                    Grade {result.overallGrade} ({result.overallLevel})
+                    Grade {result.overallGrade} ({result.overallLevel || result.indicativeLevel})
                   </div>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-sm font-bold uppercase text-slate-800">Chief Examiner Paper Overview</h3>
+                <h3 className="text-sm font-bold uppercase text-slate-800">Examiner Guidance & Paper Overview</h3>
                 <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line border-l-2 border-slate-900 pl-3">
                   {result.overallExaminerSummary}
                 </p>
@@ -1804,7 +2051,7 @@ ${q.transcribedAnswer}
                   <div key={idx} className="p-4 border border-slate-300 rounded-lg space-y-2">
                     <div className="flex justify-between font-bold text-xs border-b border-slate-200 pb-1">
                       <span>{q.questionTitle}: "{q.questionText}"</span>
-                      <span>{q.marksAwarded} / {q.marksPossible} Marks (AO1: {q.ao1Score}/{q.ao1Max}, AO2: {q.ao2Score || 0}/{q.ao2Max || 0}, AO3: {q.ao3Score || 0}/{q.ao3Max || 0})</span>
+                      <span>{q.marksAwarded ?? q.estimatedMarkMax ?? 0} / {q.marksPossible ?? q.maximumMark ?? 10} Marks (AO1: {q.ao1Score ?? q.ao1EstimatedMax ?? 0}/{q.ao1Max}, AO2: {(q.ao2Score ?? q.ao2EstimatedMax) || 0}/{q.ao2Max || 0}, AO3: {(q.ao3Score ?? q.ao3EstimatedMax) || 0}/{q.ao3Max || 0})</span>
                     </div>
                     <div className="flex gap-2 text-[10px] text-slate-600 font-semibold">
                       {q.tariffStructure && <span>Tariff: {q.tariffStructure}</span>}
@@ -1819,7 +2066,7 @@ ${q.transcribedAnswer}
                     )}
                     {q.upgradedSampleParagraph && (
                       <div className="text-[11px] text-slate-800 bg-slate-50 p-2 rounded border border-slate-200">
-                        <strong>Model Level 5 Rewrite:</strong> "{q.upgradedSampleParagraph}"
+                        <strong>Illustrative High-Band Model Response:</strong> "{q.upgradedSampleParagraph}"
                       </div>
                     )}
                   </div>

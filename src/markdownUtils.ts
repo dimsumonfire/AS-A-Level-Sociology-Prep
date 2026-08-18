@@ -77,6 +77,49 @@ export function sanitizeSociologyMarkdown(text: string): string {
   cleaned = cleaned.replace(/^[ \t]*[•*][ \t]+/gm, '- ');
   cleaned = cleaned.replace(/^[ \t]*-[ \t]*\*\*/gm, '- **');
 
+  // 8c. Automatically format standalone small subheadings into bold markdown headings (#### **Heading**)
+  // Detects short title-like lines (e.g. "Primary Socialisation", "Secondary Socialisation", "The Warm Bath Theory")
+  // that are not already headings, not bullet points, not code fences, and not full prose sentences.
+  const linesForHeadings = cleaned.split('\n');
+  const processedHeadingLines: string[] = [];
+  
+  for (let i = 0; i < linesForHeadings.length; i++) {
+    const line = linesForHeadings[i];
+    const trimmed = line.trim();
+    
+    // Check if line is a standalone subheading candidate
+    const isHeadingCandidate = (
+      trimmed.length >= 3 &&
+      trimmed.length <= 75 &&
+      !trimmed.startsWith('#') &&
+      !trimmed.startsWith('- ') &&
+      !trimmed.startsWith('* ') &&
+      !trimmed.startsWith('•') &&
+      !trimmed.startsWith('>') &&
+      !trimmed.startsWith('__MD_') &&
+      !trimmed.startsWith('```') &&
+      !trimmed.startsWith('|') &&
+      // Must not end with sentence-ending punctuation like period, question mark, exclamation mark, comma, semicolon
+      !/[.?!,;]$/.test(trimmed) &&
+      // Starts with capital letter, Roman numeral, digit, or quotes/asterisks
+      /^(?:(?:\d+|[IVXLCDM]+)[\.\:\)]\s*)?(?:\*\*)?[A-Z0-9'"][A-Za-z0-9\s/&,–—\(\)'"–\+\-:]*(?:\*\*)?:?$/.test(trimmed) &&
+      // Avoid matching whole sentences by ensuring word count is reasonable (<= 9 words)
+      trimmed.split(/\s+/).length <= 9 &&
+      // Must not look like a sentence fragment with lowercase verbs or subordinate conjunctions
+      !/^(?:and|or|but|because|which|that|whereas|although|however|therefore|in order to|due to|such as|for example|for instance)\b/i.test(trimmed)
+    );
+
+    if (isHeadingCandidate) {
+      // Clean off existing surrounding asterisks or trailing colons for clean formatting
+      const rawTitle = trimmed.replace(/^(\*{2,})/, '').replace(/(\*{2,})$/, '').replace(/^#+\s*/, '').trim();
+      // Ensure it renders with bold heading formatting
+      processedHeadingLines.push(`\n#### **${rawTitle}**\n`);
+    } else {
+      processedHeadingLines.push(line);
+    }
+  }
+  cleaned = processedHeadingLines.join('\n');
+
   // 9. Ensure double line breaks between paragraphs so markdown generates separate paragraph tags with spacing
   cleaned = cleaned.replace(/([.?!:])\s*\n\s*([A-Z0-9\*\-])/g, '$1\n\n$2');
 
@@ -137,7 +180,7 @@ export function cleanPEELForProse(content: string): string {
 }
 
 export interface PEELBlockData {
-  type: 'POINT' | 'EVIDENCE' | 'EXPLANATION' | 'LINK' | 'TEXT';
+  type: 'POINT' | 'EVIDENCE' | 'EXPLANATION' | 'EVALUATION' | 'LINK' | 'TEXT';
   text: string;
 }
 
@@ -148,9 +191,11 @@ export interface ParsedParagraph {
 }
 
 const POINT_REGEX = /^\s*(?:\*\*)?(?:POINT(?:\s*\d+)?)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
-const EVIDENCE_REGEX = /^\s*(?:\*\*)?(?:EVIDENCE)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
-const EXPLANATION_REGEX = /^\s*(?:\*\*)?(?:EXPLANATION(?:\s*[\+&]\s*EVALUATION)?|EVALUATION)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
-const LINK_REGEX = /^\s*(?:\*\*)?(?:LINK)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
+const EVIDENCE_REGEX = /^\s*(?:\*\*)?(?:EVIDENCE|EMPIRICAL\s+EVIDENCE|THEORIST(?:\s*[\+&]\s*STUDY)?)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
+const EXPLANATION_EVAL_REGEX = /^\s*(?:\*\*)?(?:EXPLANATION\s*[\+&]\s*EVALUATION)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
+const EXPLANATION_REGEX = /^\s*(?:\*\*)?(?:EXPLANATION|THEORETICAL\s+EXPLANATION|ANALYSIS)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
+const EVALUATION_REGEX = /^\s*(?:\*\*)?(?:EVALUATION|AO3\s+EVALUATION|COUNTER(?:\s*[-–—]?\s*ARGUMENT|\s*PERSPECTIVE)?|CRITIQUE|LIMITATION)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
+const LINK_REGEX = /^\s*(?:\*\*)?(?:LINK|SYNTHESIS|CONCLUSION(?:\s*LINK)?)(?:\s*[:\-–—]\s*|\s*\*\*\s*[:\-–—]?\s*|:\s*\*\*\s*|\s*\*\*\s*|\s*[:\-–—]\s*)\s*/i;
 
 /**
  * Parses essay text into structured PEEL study cards.
@@ -161,14 +206,15 @@ export function parsePEELParagraphs(content: string): ParsedParagraph[] {
 
   return paragraphs.map((para) => {
     const hasPoint = /POINT/i.test(para);
-    const hasEvidence = /EVIDENCE/i.test(para);
-    const hasExplanation = /EXPLANATION|EVALUATION/i.test(para);
-    const hasLink = /LINK/i.test(para);
+    const hasEvidence = /EVIDENCE|THEORIST/i.test(para);
+    const hasExplanation = /EXPLANATION|ANALYSIS/i.test(para);
+    const hasEvaluation = /EVALUATION|CRITIQUE|COUNTER/i.test(para);
+    const hasLink = /LINK|SYNTHESIS/i.test(para);
 
-    if (hasPoint || hasEvidence || hasExplanation || hasLink) {
+    if (hasPoint || hasEvidence || hasExplanation || hasEvaluation || hasLink) {
       const blocks: PEELBlockData[] = [];
       const lines = para.split('\n');
-      let currentType: 'POINT' | 'EVIDENCE' | 'EXPLANATION' | 'LINK' | 'TEXT' = 'TEXT';
+      let currentType: 'POINT' | 'EVIDENCE' | 'EXPLANATION' | 'EVALUATION' | 'LINK' | 'TEXT' = 'TEXT';
       let currentText: string[] = [];
 
       lines.forEach((line) => {
@@ -191,6 +237,15 @@ export function parsePEELParagraphs(content: string): ParsedParagraph[] {
           }
           currentType = 'EVIDENCE';
           currentText = [cleanLine.replace(EVIDENCE_REGEX, '')];
+        } else if (EXPLANATION_EVAL_REGEX.test(cleanLine)) {
+          if (currentText.length > 0) {
+            blocks.push({ 
+              type: currentType, 
+              text: sanitizeSociologyMarkdown(currentText.join('\n')) 
+            });
+          }
+          currentType = 'EXPLANATION';
+          currentText = [cleanLine.replace(EXPLANATION_EVAL_REGEX, '')];
         } else if (EXPLANATION_REGEX.test(cleanLine)) {
           if (currentText.length > 0) {
             blocks.push({ 
@@ -200,6 +255,15 @@ export function parsePEELParagraphs(content: string): ParsedParagraph[] {
           }
           currentType = 'EXPLANATION';
           currentText = [cleanLine.replace(EXPLANATION_REGEX, '')];
+        } else if (EVALUATION_REGEX.test(cleanLine)) {
+          if (currentText.length > 0) {
+            blocks.push({ 
+              type: currentType, 
+              text: sanitizeSociologyMarkdown(currentText.join('\n')) 
+            });
+          }
+          currentType = 'EVALUATION';
+          currentText = [cleanLine.replace(EVALUATION_REGEX, '')];
         } else if (LINK_REGEX.test(cleanLine)) {
           if (currentText.length > 0) {
             blocks.push({ 

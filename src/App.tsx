@@ -38,6 +38,7 @@ import AskQuestionView from './components/AskQuestionView';
 import AnswerScannerView from './components/AnswerScannerView';
 import { sanitizeSociologyMarkdown, cleanPEELForProse, parsePEELParagraphs } from './markdownUtils';
 import { exportElementToPdf } from './pdfUtils';
+import AIStudyDisclaimer from './components/AIStudyDisclaimer';
 
 const safeJsonParse = (text: string) => {
   try {
@@ -200,7 +201,7 @@ function DashboardView({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
             PDF & Photo OCR Marking
           </div>
           <h3 className="text-lg font-bold mb-2">Scan & Grade Answer</h3>
-          <p className="text-slate-600 text-sm mb-4">Upload PDF exam scripts or handwritten photos to get OCR transcription and official CAIE examiner marking.</p>
+          <p className="text-slate-600 text-sm mb-4">Upload PDF exam scripts or handwritten photos to get OCR transcription and AI-assisted feedback aligned with Cambridge 9699 assessment objectives.</p>
           <button onClick={() => onNavigate('scan-answer')} className="text-indigo-600 font-bold text-sm hover:underline flex items-center gap-1">
             Grade PDF / Script &rarr;
           </button>
@@ -214,7 +215,7 @@ function DashboardView({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
             4m • 8m • 10m • 26m
           </div>
           <h3 className="text-lg font-bold mb-2">Ask a Question</h3>
-          <p className="text-slate-600 text-sm mb-4">Generate A* model answers with textbook evidence and chief examiner reports.</p>
+          <p className="text-slate-600 text-sm mb-4">Generate illustrative high-band model responses with textbook evidence and feedback informed by published examiner guidance.</p>
           <button onClick={() => onNavigate('ask-question')} className="text-indigo-600 font-semibold text-sm hover:underline flex items-center gap-1">
             Ask Custom Question &rarr;
           </button>
@@ -478,6 +479,7 @@ ${ragContext}
         - ASCII MINDMAPS & DIAGRAMS: Always wrap ASCII diagrams, concept maps, and comparison box trees inside fenced code blocks (\`\`\`text ... \`\`\`) with crisp box alignment.
         - NATURAL SPACING & WORD SEPARATION: Always ensure standard spaces between words, before/after parentheses, after punctuation (commas, colons, semicolons), and around bold tags (e.g. write "social identity (the external..." and "and **personal identity** or 'self-concept'..." and "theory: **structuralism versus social action**, **consensus versus conflict**, and **positivism versus interpretivism**"). Never fuse words together without spaces.
         - BOLD ALL KEYWORDS: You MUST systematically and thoroughly BOLD (using **bold** markdown tags) all key concepts, theories, named sociologists/thinkers (with dates), landmark research studies, and methodological terms (e.g. **Talcott Parsons (1951)**, **warm bath theory**, **functional fit**, **structural differentiation**, **ideological state apparatus**, **Louis Althusser (1971)**, **triangulation**, **ecological validity**).
+        - SUBHEADINGS & SMALL HEADINGS: Every concept section, stage, phase, sub-concept, thinker section, or topic heading (e.g. '#### **Primary Socialisation**', '#### **Secondary Socialisation**', '#### **The Warm Bath Theory**', '#### **Functional Fit Theory**') MUST be formatted as a bold markdown heading with \`#### **Heading Name**\`, NEVER left as unbolded plain text.
         - BOLD SYNTAX: Always format bold keywords strictly as **keyword** with normal spaces before the opening ** and after the closing **. Never escape asterisks with backslashes.
         - Do not output meta-commentary, introductory greetings, or sign-offs. Output only the pure, formatted masterclass guide.`,
         config: {
@@ -549,6 +551,7 @@ ${ragContext}
         - Make sure to cover the remaining sections or details specified in the masterclass structure (such as: deep concept analysis, thinker profiles & empirical studies, theoretical clashes & dialectic arguments, critical evaluations, or the compact exam summary) if they were not fully completed.
         - Ensure double line breaks between paragraphs for maximum student readability.
         - Systematically BOLD (using **bold** markdown tags) key sociological terms, concepts, theories, named thinkers, and research studies.
+        - Format every sub-concept or small section heading as a bold markdown heading (e.g. \`#### **Heading Name**\`).
         - Do not include any introductory meta-text (e.g., "Sure, continuing now..."), concluding remarks, or markdown wrappers other than the resumed text itself. Just output the text to be appended.`,
         config: {
           maxOutputTokens: 8192
@@ -762,6 +765,8 @@ ${ragContext}
           <div className="markdown-body prose prose-slate max-w-none">
             <Markdown remarkPlugins={[remarkGfm]}>{sanitizeSociologyMarkdown(explanation)}</Markdown>
           </div>
+
+          <AIStudyDisclaimer className="mt-4" />
 
           {!isStreaming && !loading && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-100 mt-6">
@@ -1357,7 +1362,7 @@ function PracticeView() {
       ${ragContext}
       ` : ""}
       
-      Generate a highly realistic Model Answer (guaranteed Level 4/5 full marks) for the following question from ${paperTitle}:
+      Generate an illustrative Level 4/5 high-band model response for the following question from ${paperTitle}:
       
       Question: "${questionText}" [${marks} marks]
       
@@ -1725,8 +1730,8 @@ function PracticeView() {
                               <FileText size={24} className="text-indigo-400" />
                             </div>
                             <div>
-                              <h5 className="font-bold">Official Mark Scheme</h5>
-                              <p className="text-slate-400 text-sm">Model answers are generated using AI based on the official curriculum.</p>
+                              <h5 className="font-bold">Mark Scheme (Indicative Content)</h5>
+                              <p className="text-slate-400 text-sm">Model answers are AI-generated study responses aligned with Cambridge assessment criteria.</p>
                             </div>
                           </div>
                           <button 
@@ -2282,7 +2287,7 @@ function GenerateView() {
       ${ragContext}
       ` : ""}
       
-      Generate a highly realistic Model Answer (guaranteed Level 4/5 full marks) for the following question from Paper ${selectedPaper}:
+      Generate an illustrative Level 4/5 high-band model response for the following question from Paper ${selectedPaper}:
       
       Question ${questionId} [${marks} marks]: "${questionText}"
       
