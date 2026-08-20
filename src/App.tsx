@@ -28,7 +28,7 @@ import {
   HelpCircle,
   Camera
 } from 'lucide-react';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type } from './lib/ai';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { syllabus, practiceQuestions, paperTopics, pastPapers, paperSubTopics } from './data';
@@ -402,19 +402,7 @@ function ExplainView() {
     const ragContext = getSociologyRAGContent(`Paper ${selectedPaper}`, selectedTopic, currentSubTopic);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API Key is missing. Please configure it in the settings.');
-      }
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const ai = new GoogleGenAI();
       const responseStream = await ai.models.generateContentStream({
         model: "gemini-3.7-flash",
         contents: `You are an elite, highly supportive Cambridge Sociology textbook author and chief educator. Your mission is to provide an exceptionally comprehensive, detailed, and non-repetitive masterclass explanation of "${topicQuery}" (Paper ${selectedPaper}).
@@ -519,19 +507,7 @@ ${ragContext}
     const topicQuery = currentSubTopic === 'Introduction' ? selectedTopic : `${selectedTopic} - ${currentSubTopic}`;
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API Key is missing. Please configure it in the settings.');
-      }
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const ai = new GoogleGenAI();
 
       const responseStream = await ai.models.generateContentStream({
         model: "gemini-3.7-flash",
@@ -1341,19 +1317,7 @@ function PracticeView() {
     const ragContext = searchSociologyRAGByQuestion(paperTitle, questionText);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API Key is missing. Please configure it in the settings.');
-      }
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const ai = new GoogleGenAI();
       
       const prompt = `You are a top-tier Sociology Examiner and Subject Expert specializing in the Cambridge International June/Nov AS & A Level Exam (9699).
       Synthesize knowledge from the "Collins Cambridge International AS & A Level Sociology" and "Cambridge University Press Coursebook by Livesey and Blundell" textbooks.
@@ -2137,19 +2101,7 @@ function GenerateView() {
     setModelAnswers({});
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API Key is missing. Please configure it in the settings.');
-      }
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const ai = new GoogleGenAI();
       const randomSeed = Math.floor(Math.random() * 1000000);
       
       const paperTopicGuidance = {
@@ -2266,19 +2218,7 @@ function GenerateView() {
     const ragContext = searchSociologyRAGByQuestion(`Paper ${selectedPaper}`, questionText);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API Key is missing. Please configure it in the settings.');
-      }
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const ai = new GoogleGenAI();
       
       const prompt = `You are a top-tier Sociology Examiner and Subject Expert specializing in the Cambridge International June/Nov AS & A Level Exam (9699).
       Synthesize knowledge from the "Collins Cambridge International AS & A Level Sociology" and "Cambridge University Press Coursebook by Livesey and Blundell" textbooks.

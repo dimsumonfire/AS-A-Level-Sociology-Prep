@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type } from '../lib/ai';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
@@ -241,19 +241,7 @@ export default function AskQuestionView() {
     setError(null);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API Key is missing. Please check your environment configuration.');
-      }
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const ai = new GoogleGenAI();
 
       // 1. Retrieve RAG Database Context
       const targetPaper = selectedPaper === 'Auto' ? 'Paper 1' : selectedPaper;

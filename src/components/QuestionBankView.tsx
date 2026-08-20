@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type } from '../lib/ai';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
@@ -126,19 +126,7 @@ export default function QuestionBankView() {
     const ragContext = searchSociologyRAGByQuestion(q.paperTitle, q.questionText);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API Key is missing. Please check your environment configuration.');
-      }
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const ai = new GoogleGenAI();
 
       const prompt = `You are an expert Cambridge Sociology educator and assessment specialist for Cambridge International AS & A Level Sociology (9699).
 Synthesize deep academic knowledge from the "Collins Cambridge International AS & A Level Sociology" (Haralambos & Holborn) and "Cambridge University Press Coursebook" (Livesey & Blundell).
