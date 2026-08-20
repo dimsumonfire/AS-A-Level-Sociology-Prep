@@ -12,7 +12,7 @@ function apiDevPlugin(): Plugin {
     name: 'openrouter-api-dev',
     configureServer(server: ViteDevServer) {
       server.middlewares.use('/api/generate', async (req, res) => {
-        const module = await server.ssrLoadModule('/api/_node.ts');
+        const module = await server.ssrLoadModule('/api/generate.ts');
         await module.nodeHandler(req, res);
       });
     },
