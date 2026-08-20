@@ -1,7 +1,11 @@
-import { handleGenerate } from './_openrouter';
+import { nodeHandler } from './_node';
 
-export const config = { runtime: 'edge' };
+/**
+ * Runs on the Node runtime rather than Edge. Edge functions must emit a first
+ * byte within 25 seconds, which a non-streaming marking request cannot do: the
+ * script is OCR'd and marked in full before any response exists. Node allows up
+ * to 300 seconds.
+ */
+export const config = { maxDuration: 300 };
 
-export default function handler(request: Request): Promise<Response> {
-  return handleGenerate(request);
-}
+export default nodeHandler;

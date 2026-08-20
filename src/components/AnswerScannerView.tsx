@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from '../lib/ai';
+import { prepareScriptFiles, MAX_SOURCE_BYTES } from '../lib/prepareScriptFiles';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
@@ -439,6 +440,14 @@ export default function AnswerScannerView() {
       return;
     }
 
+    if (file.size > MAX_SOURCE_BYTES) {
+      setError(
+        `"${file.name}" is ${(file.size / 1048576).toFixed(1)}MB, which is too large to process in the browser. ` +
+          `Please split the script into smaller files.`
+      );
+      return;
+    }
+
     const mimeType = isPdf ? 'application/pdf' : file.type || 'image/jpeg';
     const reader = new FileReader();
 
@@ -508,16 +517,20 @@ export default function AnswerScannerView() {
     try {
       const ai = new GoogleGenAI();
 
-      const parts: any[] = [];
+      // PDFs are rasterised and every page re-encoded to fit the 4.5MB request
+      // limit. Throws with a user-facing message if it cannot fit legibly.
+      const prepared = await prepareScriptFiles(files, setStatusMessage);
 
-      files.forEach((f) => {
-        parts.push({
-          inlineData: {
-            mimeType: f.mimeType,
-            data: f.base64
-          }
-        });
-      });
+      const parts: any[] = prepared.pages.map((page) => ({
+        inlineData: {
+          mimeType: page.mimeType,
+          data: page.base64
+        }
+      }));
+
+      setStatusMessage(
+        `Marking ${prepared.pages.length} page${prepared.pages.length === 1 ? '' : 's'} against Cambridge 9699 mark schemes...`
+      );
 
       const prompt = `You provide AI-assisted feedback aligned with Cambridge International AS & A Level Sociology (9699) assessment objectives.
 You evaluate student exam answer scripts uploaded as multi-page PDF documents or scanned/photographed image pages containing ONE OR MULTIPLE QUESTIONS across Paper 1 (Socialisation, Identity & Methods), Paper 2 (The Family), Paper 3 (Education), or Paper 4 (Globalisation, Media & Religion).

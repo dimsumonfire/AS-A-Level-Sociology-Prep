@@ -12,39 +12,8 @@ function apiDevPlugin(): Plugin {
     name: 'openrouter-api-dev',
     configureServer(server: ViteDevServer) {
       server.middlewares.use('/api/generate', async (req, res) => {
-        try {
-          const chunks: Buffer[] = [];
-          for await (const chunk of req) chunks.push(chunk as Buffer);
-
-          const module = await server.ssrLoadModule('/api/_openrouter.ts');
-          const response: Response = await module.handleGenerate(
-            new Request('http://localhost/api/generate', {
-              method: req.method ?? 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: chunks.length ? Buffer.concat(chunks) : undefined,
-            }),
-          );
-
-          res.statusCode = response.status;
-          response.headers.forEach((value, key) => res.setHeader(key, value));
-
-          if (!response.body) {
-            res.end();
-            return;
-          }
-
-          const reader = response.body.getReader();
-          for (;;) {
-            const {done, value} = await reader.read();
-            if (done) break;
-            res.write(Buffer.from(value));
-          }
-          res.end();
-        } catch (err: any) {
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({error: err?.message ?? 'Dev API handler failed.'}));
-        }
+        const module = await server.ssrLoadModule('/api/_node.ts');
+        await module.nodeHandler(req, res);
       });
     },
   };

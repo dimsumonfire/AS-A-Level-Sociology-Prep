@@ -45,14 +45,25 @@ export interface GenerateResponse {
   text: string;
 }
 
-/** Pulls a useful message out of a failed /api/generate response. */
+/**
+ * Pulls a useful message out of a failed /api/generate response.
+ *
+ * Platform-level failures never reach our handler, so they arrive as bare
+ * status codes with an HTML body. Those are translated to something a student
+ * or teacher can act on.
+ */
+const PLATFORM_ERRORS: Record<number, string> = {
+  413: 'The upload is too large to send. Please split the script and try fewer pages at a time.',
+  504: 'The request took too long and timed out. Try again with fewer pages.',
+};
+
 async function toError(response: Response): Promise<Error> {
-  let message = `Request failed (${response.status})`;
+  let message = PLATFORM_ERRORS[response.status] ?? `Request failed (${response.status})`;
   try {
     const body = await response.json();
     if (body?.error) message = body.error;
   } catch {
-    // Response was not JSON; keep the status-code message.
+    // Response was not JSON (an edge/platform error page); keep the mapping above.
   }
   return new Error(message);
 }
