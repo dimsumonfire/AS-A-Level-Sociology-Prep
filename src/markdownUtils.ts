@@ -41,6 +41,32 @@ export function sanitizeSociologyMarkdown(text: string): string {
   // e.g. "**Economic and Social Research Council (ESRC) ,**" -> "**Economic and Social Research Council (ESRC)**,"
   cleaned = cleaned.replace(/\*\*([^\*\n]+?)\s*([:;,.\?!])\s*\*\*/g, '**$1**$2 ');
 
+  // 3b. Move LEADING punctuation out of a bold run so it rejoins the previous sentence.
+  // Models often end a sentence and open the next bold term in one stray token:
+  // "severely limited**. Susan Curtiss's (1977)**" -> "severely limited. **Susan Curtiss's (1977)**"
+  // Without this, step 5 keeps the period inside the bold and pads it out to " . ".
+  //
+  // Done by delimiter parity rather than regex: a pattern cannot tell an opening **
+  // from a closing one, and rewriting a closing delimiter corrupts well-formed bold
+  // (e.g. "**Genie**. Then" would lose its closing tag).
+  cleaned = cleaned
+    .split('\n')
+    .map((line) => {
+      const segments = line.split('**');
+      // Odd length means the delimiters are balanced; anything else is left alone.
+      if (segments.length < 3 || segments.length % 2 === 0) return line;
+
+      // Odd indices are inside a bold run.
+      for (let i = 1; i < segments.length; i += 2) {
+        const leading = segments[i].match(/^([:;,.\?!]+)[ \t]+/);
+        if (!leading) continue;
+        segments[i - 1] += `${leading[1]} `;
+        segments[i] = segments[i].slice(leading[0].length);
+      }
+      return segments.join('**');
+    })
+    .join('\n');
+
   // 4. Fix misplaced colons after words starting a bold term when no opening bold was placed:
   // e.g. "sociological theory**:structuralism" -> "sociological theory: **structuralism"
   cleaned = cleaned.replace(/(^|\s)([a-zA-Z0-9]+)\*\*:\s*([a-zA-Z0-9])/g, '$1$2: **$3');
@@ -73,9 +99,11 @@ export function sanitizeSociologyMarkdown(text: string): string {
   // 8. Fix missing space before quotes: e.g. 'identityor "self-concept"' or 'identity"self-concept"'
   cleaned = cleaned.replace(/([a-zA-Z0-9\*])"([a-zA-Z0-9])/g, '$1 "$2');
 
-  // 8b. Normalize list bullets to standard markdown '-' list format so CommonMark parses clean <ul><li>
-  cleaned = cleaned.replace(/^[ \t]*[•*][ \t]+/gm, '- ');
-  cleaned = cleaned.replace(/^[ \t]*-[ \t]*\*\*/gm, '- **');
+  // 8b. Normalize list bullets to standard markdown '-' list format so CommonMark parses clean <ul><li>.
+  // Leading indentation is captured and re-emitted: it is what CommonMark uses to
+  // nest sublists, so stripping it flattens the whole hierarchy.
+  cleaned = cleaned.replace(/^([ \t]*)[•*][ \t]+/gm, '$1- ');
+  cleaned = cleaned.replace(/^([ \t]*)-[ \t]*\*\*/gm, '$1- **');
 
   // 8c. Automatically format standalone small subheadings into bold markdown headings (#### **Heading**)
   // Detects short title-like lines (e.g. "Primary Socialisation", "Secondary Socialisation", "The Warm Bath Theory")
@@ -120,11 +148,20 @@ export function sanitizeSociologyMarkdown(text: string): string {
   }
   cleaned = processedHeadingLines.join('\n');
 
-  // 9. Ensure double line breaks between paragraphs so markdown generates separate paragraph tags with spacing
-  cleaned = cleaned.replace(/([.?!:])\s*\n\s*([A-Z0-9\*\-])/g, '$1\n\n$2');
+  // 9. Ensure double line breaks between prose paragraphs so markdown generates
+  // separate paragraph tags. List structure is left alone: the previous `\s*`
+  // swallowed the next line's indentation, which flattened nested bullets.
+  cleaned = cleaned.replace(
+    /([.?!:])[ \t]*\n([ \t]*)([A-Z0-9\*\-])/g,
+    (_match, punctuation, indent, nextChar) =>
+      indent || nextChar === '-' || nextChar === '*'
+        ? `${punctuation}\n${indent}${nextChar}` // list item or nested content
+        : `${punctuation}\n\n${nextChar}`, // ordinary prose
+  );
 
-  // 10. Clean multiple spaces inside prose sentences
-  cleaned = cleaned.replace(/[ \t]{2,}/g, ' ');
+  // 10. Clean multiple spaces inside prose sentences. Anchored to a non-space
+  // character so line-leading indentation (list nesting) is preserved.
+  cleaned = cleaned.replace(/(\S)[ \t]{2,}/g, '$1 ');
 
   // 11. Fix stray/unmatched bold asterisks per line so unclosed tags don't leave raw ** in output
   const lines = cleaned.split('\n');
